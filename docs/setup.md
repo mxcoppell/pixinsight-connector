@@ -5,7 +5,8 @@ the environment variables, where PixInsight is looked for, and which models work
 
 ## Registering with a harness
 
-The server command is `pixinsight-connector` (after `npm install -g pixinsight-connector`).
+The server command is `pixinsight-connector` (after `npm install -g pixinsight-connector`). It is also listed in the
+MCP registry as `io.github.mxcoppell/pixinsight-connector`, for harnesses that install servers from it.
 Register it under the name `pixinsight`. A harness that cannot find the command takes its full path: run
 `npm prefix -g` and append `bin/pixinsight-connector`.
 
