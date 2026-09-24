@@ -2,6 +2,13 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.1.2
+
+- `doctor` has a `pixinsight-mcp` check: it fails when the 1.x command (this connector's old name) is still on
+  PATH, and says to uninstall it and register one server, `pixinsight`, with the command `pixinsight-connector`.
+  Two servers driving one PixInsight compete for its single script slot.
+- The README says how to move from pixinsight-mcp 1.x without registering a second server.
+
 ## 2.1.1
 
 - Published on npm as `pixinsight-connector` and listed in the MCP registry as

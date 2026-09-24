@@ -89,10 +89,11 @@ test('names which candidate path matched, so a wrong guess is diagnosable', asyn
 // Additional coverage.
 // ---------------------------------------------------------------------------
 
-test('emits all 12 checks in the documented order', async () => {
+test('emits all 13 checks in the documented order', async () => {
   const r = await runDoctor({ platform: null, probe: { isRunning: async () => null }, packs: [] });
   assert.deepEqual(r.checks.map((c) => c.name), [
     'node',
+    'pixinsight-mcp',
     'platform',
     'pixinsight-binary',
     'pixinsight-running',
@@ -410,4 +411,37 @@ test('launch-mutex check: free, in use by a connector, held by another program, 
   c = check(await runDoctor({ platform: null, net: fakeNet('denied') }), 'launch-mutex');
   assert.equal(c.ok, true);
   assert.match(c.detail, /cannot be bound/);
+});
+
+test('pixinsight-mcp: passes when no 1.x command is on PATH', async () => {
+  const r = await runDoctor({ platform: null, env: { PATH: '/usr/local/bin:/usr/bin' }, existsSync: () => false });
+  const c = check(r, 'pixinsight-mcp');
+  assert.equal(c.ok, true);
+});
+
+test('pixinsight-mcp: fails with an uninstall hint when the 1.x command is on PATH (posix)', async () => {
+  const seen = [];
+  const r = await runDoctor({
+    platform: null, osName: 'darwin', homeDir: '/Users/amy',
+    env: { PATH: '/usr/bin:/Users/amy/.npm-global/bin' },
+    existsSync: (p) => { seen.push(p); return p === '/Users/amy/.npm-global/bin/pixinsight-mcp'; },
+  });
+  const c = check(r, 'pixinsight-mcp');
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /~\/\.npm-global\/bin\/pixinsight-mcp/);
+  assert.doesNotMatch(c.detail, /\/Users\/amy/);
+  assert.match(c.hint, /npm uninstall -g pixinsight-mcp/);
+  assert.match(c.hint, /pixinsight-connector/);
+  assert.ok(seen.includes('/usr/bin/pixinsight-mcp'));
+});
+
+test('pixinsight-mcp: finds the npm .cmd shim on Windows through a Path variable of any case', async () => {
+  const r = await runDoctor({
+    platform: null, osName: 'win32', homeDir: 'C:\\Users\\amy',
+    env: { Path: 'C:\\Windows;C:\\Users\\amy\\AppData\\Roaming\\npm' },
+    existsSync: (p) => p === 'C:\\Users\\amy\\AppData\\Roaming\\npm\\pixinsight-mcp.cmd',
+  });
+  const c = check(r, 'pixinsight-mcp');
+  assert.equal(c.ok, false);
+  assert.match(c.detail, /~\/AppData\/Roaming\/npm\/pixinsight-mcp\.cmd/);
 });
