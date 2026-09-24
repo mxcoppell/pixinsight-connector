@@ -1,0 +1,14 @@
+# The MCPB bundle carries what the npm package carries (src/**/*.mjs, pjsr/watcher.template.js,
+# README.md, LICENSE, package.json) plus manifest.json and the runtime node_modules. Everything else
+# at the root is excluded; re-include a path here only if the connector reads it at runtime.
+# mcpb matches each path without a trailing slash, so directory patterns carry none.
+/*
+!/src
+!/pjsr
+!/node_modules
+!/manifest.json
+!/package.json
+!/README.md
+!/LICENSE
+/pjsr/*
+!/pjsr/watcher.template.js

@@ -1,0 +1,61 @@
+name: test
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: [22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '${{ matrix.node }}' }
+      - run: npm ci
+      - run: npm test
+
+  gate:                      # the one context Phase 6 requires
+    if: always()
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: All matrix legs must pass
+        run: test "${{ needs.test.result }}" = "success"
+
+  publish:                   # on a v* tag: checks the version; publishes to npm only once the NPM_TOKEN secret exists
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: gate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write        # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: 'https://registry.npmjs.org'
+      - name: The tag must equal v + package.json version
+        run: >-
+          node -e "const v = 'v' + require('./package.json').version;
+          if (process.env.GITHUB_REF_NAME !== v) { console.error('tag ' + process.env.GITHUB_REF_NAME + ' does not match package.json ' + v); process.exit(1); }"
+      - name: Is npm a release channel yet? (only whether NPM_TOKEN exists leaves this step)
+        id: npm
+        env:
+          HAS_TOKEN: ${{ secrets.NPM_TOKEN != '' }}
+        run: echo "enabled=$HAS_TOKEN" >> "$GITHUB_OUTPUT"
+      - if: steps.npm.outputs.enabled != 'true'
+        run: echo "NPM_TOKEN is not set; install is GitHub-direct only, skipping npm publish"
+      - if: steps.npm.outputs.enabled == 'true'
+        run: npm ci --ignore-scripts
+      - if: steps.npm.outputs.enabled == 'true'
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

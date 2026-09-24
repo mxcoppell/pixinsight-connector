@@ -1,0 +1,42 @@
+{
+  "name": "pixinsight-connector",
+  "version": "2.0.0",
+  "mcpName": "io.github.mxcoppell/pixinsight-connector",
+  "description": "MCP connector that lets any AI agent operate PixInsight: a toolbox of PixInsight operations, extensible with runtime tool packs",
+  "type": "module",
+  "main": "src/server.mjs",
+  "bin": {
+    "pixinsight-connector": "src/cli.mjs"
+  },
+  "files": [
+    "src/**/*.mjs",
+    "pjsr/watcher.template.js"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/cli.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "docs:tools": "node test/docs-tools.mjs"
+  },
+  "keywords": [
+    "pixinsight",
+    "mcp",
+    "astrophotography",
+    "model-context-protocol"
+  ],
+  "author": "Min Xie",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mxcoppell/pixinsight-connector.git"
+  },
+  "homepage": "https://github.com/mxcoppell/pixinsight-connector#readme",
+  "bugs": {
+    "url": "https://github.com/mxcoppell/pixinsight-connector/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0"
+  }
+}

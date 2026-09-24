@@ -1,0 +1,83 @@
+{
+  "manifest_version": "0.3",
+  "name": "pixinsight-connector",
+  "display_name": "PixInsight Connector",
+  "version": "2.0.0",
+  "description": "Operate PixInsight from an MCP client: PixInsight operations as tools, extensible by packs.",
+  "long_description": "A generic MCP connector for PixInsight. Its tools open images, read statistics, run processes, build masks and export results through a file-based bridge; PixInsight and the bridge's watcher script are started on the first tool call. It contains no processing workflow: no pipeline, no ordering, no recommended parameters. Tool packs add tools at startup. Community project, not affiliated with or endorsed by Pleiades Astrophoto.",
+  "author": {
+    "name": "Min Xie",
+    "url": "https://github.com/mxcoppell"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mxcoppell/pixinsight-connector.git"
+  },
+  "homepage": "https://github.com/mxcoppell/pixinsight-connector#readme",
+  "documentation": "https://github.com/mxcoppell/pixinsight-connector#readme",
+  "support": "https://github.com/mxcoppell/pixinsight-connector/issues",
+  "license": "MIT",
+  "keywords": [
+    "pixinsight",
+    "mcp",
+    "astrophotography",
+    "model-context-protocol"
+  ],
+  "server": {
+    "type": "node",
+    "entry_point": "src/cli.mjs",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/src/cli.mjs"
+      ],
+      "env": {
+        "PIXINSIGHT_BIN": "${user_config.pixinsight_bin}",
+        "PIXINSIGHT_DIR": "${user_config.pixinsight_dir}",
+        "PIXINSIGHT_CONNECTOR_PACKS": "${user_config.packs}",
+        "PIXINSIGHT_CONNECTOR_WORKSPACE": "${user_config.workspace}"
+      }
+    }
+  },
+  "tools_generated": true,
+  "user_config": {
+    "pixinsight_bin": {
+      "type": "file",
+      "title": "PixInsight executable",
+      "description": "Path to the PixInsight executable. Leave empty to use the default install location for your OS.",
+      "required": false,
+      "default": ""
+    },
+    "pixinsight_dir": {
+      "type": "directory",
+      "title": "PixInsight install folder",
+      "description": "The PixInsight install root, the folder that holds its src and library folders. Leave empty to derive it from the executable, or to use the default install location for your OS.",
+      "required": false,
+      "default": ""
+    },
+    "workspace": {
+      "type": "directory",
+      "title": "Target folder",
+      "description": "The folder the tools work in: session files go to its agentic folder, results to its output folder. Claude Desktop starts the connector in no useful folder: set this, or name the folder in each chat (the set_workspace tool).",
+      "required": false,
+      "default": ""
+    },
+    "packs": {
+      "type": "string",
+      "title": "Tool packs",
+      "description": "Comma-separated tool packs to load: pack directories and .mjs files (an npm package by the path to its folder). Empty: no packs.",
+      "required": false,
+      "default": ""
+    }
+  },
+  "compatibility": {
+    "platforms": [
+      "darwin",
+      "win32",
+      "linux"
+    ],
+    "runtimes": {
+      "node": ">=22"
+    }
+  }
+}

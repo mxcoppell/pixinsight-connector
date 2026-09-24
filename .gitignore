@@ -1,0 +1,10 @@
+node_modules/
+.env
+.DS_Store
+
+# local scratch: architecture notes, plans, anything not for the repo
+local/
+
+# a session run from the checkout writes here (the connector's state dir and deliverables)
+/agentic/
+/output/

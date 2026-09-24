@@ -1,0 +1,73 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mxcoppell/pixinsight-connector",
+  "title": "PixInsight Connector",
+  "description": "Operate PixInsight from any MCP agent. Community project, not affiliated with Pleiades Astrophoto",
+  "repository": {
+    "url": "https://github.com/mxcoppell/pixinsight-connector",
+    "source": "github"
+  },
+  "websiteUrl": "https://github.com/mxcoppell/pixinsight-connector#readme",
+  "version": "2.0.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "pixinsight-connector",
+      "version": "2.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "PIXINSIGHT_BIN",
+          "description": "Path to the PixInsight executable. When unset, the default install location for the OS is used.",
+          "format": "filepath",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PIXINSIGHT_DIR",
+          "description": "PixInsight install root, from which the executable and its resources are derived. When unset, the default install location for the OS is used.",
+          "format": "filepath",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PIXINSIGHT_CONNECTOR_PACKS",
+          "description": "Comma-separated tool packs to load: pack directories and .mjs files (an npm package by the path to its folder). Empty: no packs.",
+          "format": "string",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PIXINSIGHT_CONNECTOR_AUTOSTART",
+          "description": "0 stops the connector from starting PixInsight when a tool call finds it not running.",
+          "format": "string",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PIXINSIGHT_CONNECTOR_WORKSPACE",
+          "description": "The target folder the tools work in (session files in its agentic folder, results in its output folder). When unset, the folder the connector was started in; the set_workspace tool overrides both.",
+          "format": "filepath",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PIXINSIGHT_CONNECTOR_STATE",
+          "description": "Where the connector's session files (scratch, bridge, logs) go, resolved against the target folder. When unset, <target>/agentic.",
+          "format": "filepath",
+          "isRequired": false,
+          "isSecret": false
+        },
+        {
+          "name": "PIXINSIGHT_CONNECTOR_LOG",
+          "description": "0 turns off the per-session call logs in <target>/agentic/logs.",
+          "format": "string",
+          "isRequired": false,
+          "isSecret": false
+        }
+      ]
+    }
+  ]
+}

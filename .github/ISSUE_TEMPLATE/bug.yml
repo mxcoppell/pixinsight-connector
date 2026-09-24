@@ -1,0 +1,46 @@
+name: Bug report
+description: The connector did something wrong or failed to start.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For how to process an image (which process, which values, in what order), see COMMUNITY.md instead:
+        the connector has no processing opinion, and those questions are not connector bugs.
+  - type: textarea
+    id: doctor
+    attributes:
+      label: doctor output
+      description: Paste the full output of `npx -y github:mxcoppell/pixinsight-connector doctor`.
+      render: text
+    validations:
+      required: true
+  - type: input
+    id: harness
+    attributes:
+      label: Harness and version
+      description: The MCP client running the connector, with its version.
+      placeholder: name and the version its --version or About screen reports
+    validations:
+      required: true
+  - type: input
+    id: pixinsight
+    attributes:
+      label: PixInsight version
+      placeholder: as shown in Help > About PixInsight
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: e.g. macOS 15.6, Windows 11 24H2, Ubuntu 24.04
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The tool call made, what came back, and what you expected instead.
+    validations:
+      required: true
