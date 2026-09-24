@@ -60,23 +60,22 @@ test('install prints guidance without throwing', async () => {
   }
   const out = chunks.join('');
   assert.match(out, /install/);
-  assert.match(out, /npm install -g github:mxcoppell\/pixinsight-connector#v9\.8\.7\n/, 'prints the pinned install command');
+  assert.match(out, /npm install -g pixinsight-connector@9\.8\.7\n/, 'prints the pinned install command');
   assert.match(out, /^  pixinsight-connector$/m, 'prints the harness-neutral server command');
-  assert.match(out, /npx -y github:mxcoppell\/pixinsight-connector#v9\.8\.7\n/, 'prints the pinned npx alternative');
+  assert.match(out, /npx -y pixinsight-connector@9\.8\.7\n/, 'prints the pinned npx alternative');
   assert.match(out, /README/, 'points at the README install table');
   assert.doesNotMatch(out, /\b(claude|codex|opencode|cursor)\b/i, 'names no particular harness');
   assert.doesNotMatch(out, /later phase/i, 'no stale "lands in a later phase" text');
 });
 
-// The npm name is not published yet: `npx pixinsight-connector` would fail today, or run whatever
-// package claims the name first. Every user-facing command in src/ uses the github: form.
-test('src/ never tells anyone to run the unpublished npm name', async () => {
+// The connector is published on npm; the github: form skips npm and needs GitHub at every start.
+test('src/ tells people to run the npm package, not the github: form', async () => {
   const offenders = [];
   for (const e of await readdir('src', { withFileTypes: true, recursive: true })) {
     if (!e.isFile() || !e.name.endsWith('.mjs')) continue;
     const file = path.join(e.parentPath, e.name);
     const text = await readFile(file, 'utf8');
-    for (const m of text.matchAll(/npx\s+(?:-y\s+)?pixinsight-connector\b/g)) offenders.push(`${file}: ${m[0]}`);
+    for (const m of text.matchAll(/github:mxcoppell\/pixinsight-connector/g)) offenders.push(`${file}: ${m[0]}`);
     if (/\bclaude mcp add\b/.test(text)) offenders.push(`${file}: harness-specific "claude mcp add"`);
   }
   assert.deepEqual(offenders, []);

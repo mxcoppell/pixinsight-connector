@@ -320,7 +320,7 @@ test('the REAL bridge.mjs BridgeCrashError message reaches a real MCP client thr
     const result = await client.callTool({ name: 'run_pjsr', arguments: { code: '1;' } });
     assert.equal(result.isError, true);
     assert.match(result.content[0].text, /PixInsight could not be started/);
-    assert.match(result.content[0].text, /npx -y github:mxcoppell\/pixinsight-connector doctor/);
+    assert.match(result.content[0].text, /npx -y pixinsight-connector doctor/);
     assert.match(result.content[0].text, /PIXINSIGHT_BIN/);
     assert.doesNotMatch(result.content[0].text, /ask the user to start PixInsight/i, 'the stale self-start instruction must be gone');
   } finally {

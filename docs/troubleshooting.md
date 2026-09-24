@@ -4,7 +4,7 @@ Run `pixinsight-connector doctor` first: it checks the install, PixInsight, the 
 
 | Symptom | Cause and fix |
 |---|---|
-| The harness says the server failed to start or connect | Started with `npx`, which needs GitHub at every start: install it (`npm install -g …`, see the [README](../README.md#install)) and register `pixinsight-connector`. Otherwise run `pixinsight-connector doctor` |
+| The harness says the server failed to start or connect | Started with `npx`, which needs the npm registry until the package is cached: install it (`npm install -g …`, see the [README](../README.md#install)) and register `pixinsight-connector`. Otherwise run `pixinsight-connector doctor` |
 | `Could not find a PixInsight installation`, or `Watcher did not start` | Not at the default path: set `PIXINSIGHT_BIN`, and `PIXINSIGHT_DIR` (the install root) if `doctor`'s `imagesolver` check fails |
 | A long call is dropped after about a minute | The harness timed out. The server sends progress keepalives only when the harness requests progress (sends a `progressToken`); if it does not, or ignores them, raise its MCP tool timeout |
 | `View not found: …` | A view id was mistyped or the view was closed; the error lists the views that are open |
