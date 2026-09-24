@@ -82,8 +82,8 @@ folder the harness started in. The connector writes only `<target>/agentic/` (sc
 - **Packs** are ES modules that add or replace tools at startup, listed in `PIXINSIGHT_CONNECTOR_PACKS`. A pack is
   arbitrary code running with your privileges; only packs you configure load. See
   [CONTRIBUTING.md](CONTRIBUTING.md#developing-a-pack).
-- **Models:** any with vision and reliable tool calling. Test drive with a small, cheap one first (GPT-6 Luna, GLM-5.3-Flash,
-  DeepSeek V4.1 Flash, a local Qwen3.8-27B): prices and the full list are in [docs/setup.md](docs/setup.md#models).
+- **Models:** any with vision and reliable tool calling. Start with a Sonnet-class model (Claude Sonnet 5, GPT-6 Sol,
+  Gemini 3.8 Flash), then try cheaper ones (GPT-6 Luna, GLM-5.3-Flash, DeepSeek V4.1 Flash): prices and the list are in [docs/setup.md](docs/setup.md#models).
 
 ## Contributing
 

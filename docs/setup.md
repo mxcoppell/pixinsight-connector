@@ -79,8 +79,18 @@ What the work needs, whatever the model:
 | Reliable tool calling | tens to a hundred sequential calls, some taking minutes, all state inside PixInsight |
 | Long context | skill text, about 80 tool schemas and a transcript of numeric results |
 
-**Test drive with a small, cheap model first.** A run is many calls, so the price per token matters more than usual.
-All of these take image input. Prices are per million tokens, input / output, as of 2026-09-24:
+**1. Start with a Sonnet-class model.** It is reliable enough over a long run that a failure points at the
+workflow, not the model. All take image input. Prices are per million tokens, input / output, as of 2026-09-24:
+
+| Model | Access | Price | Notes |
+|---|---|---|---|
+| Claude Sonnet 5 | Anthropic API | $2 / $10 | |
+| GPT-6 Sol | OpenAI API | $2 / $10 | 1.05M context; prompts over 272K tokens cost more |
+| Gemini 3.8 Flash | Gemini API | $0.75 / $3.75 (introductory) | Google's current workhorse; Gemini 3.5 Pro is not yet released |
+| Kimi K3 | open weights, Moonshot API | $3 / $15 | 2.8T MoE, 1M context |
+
+**2. Once a workflow runs, try it on a smaller, cheaper model.** A run is many calls, so the price per token adds up;
+compare the result with your Sonnet-class run:
 
 | Model | Access | Price | Notes |
 |---|---|---|---|
@@ -89,18 +99,15 @@ All of these take image input. Prices are per million tokens, input / output, as
 | DeepSeek V4.1 Flash | MIT open weights, DeepSeek API (`deepseek-flash`) | $0.15 / $0.60 off-peak, $0.30 / $1.20 at peak | 552B MoE, 1M context; the API downsizes images to about 1300 px (at most 1024 tokens each), so previews lose fine detail |
 | MiniMax M3 | open weights, MiniMax API | $0.30 / $1.20 (list $0.60 / $2.40) | 1M context; images bill at a separate rate |
 | Gemini 3.5 Flash-Lite | Gemini API | $0.30 / $2.50 | fastest Gemini 3.5-class model |
-| Gemini 3.8 Flash | Gemini API | $0.75 / $3.75 (introductory) | Google's strongest current model for agents |
 | Claude Haiku 4.5 | Anthropic API | $1 / $5 | |
 | Qwen3.8-27B | Apache-2.0 open weights, run locally | free locally | 27B dense, 262K context; a 4-bit build fits a 24 GB GPU. Some serving stacks load it text-only: check that images reach the model |
 
-Frontier models, for the hardest targets:
+**3. Frontier models, for the hardest targets:**
 
 | Vendor | Models |
 |---|---|
-| Anthropic | Claude Opus 5.5, Claude Fable 5.1, Claude Sonnet 5 ($2 / $10) |
-| OpenAI | GPT-6 Astra, GPT-6 Sol |
-| Google | Gemini 3.8 Flash (Gemini 3.5 Pro is not yet released) |
-| Moonshot AI | Kimi K3: open weights, 2.8T MoE, 1M context, $3 / $15 |
+| Anthropic | Claude Opus 5.5, Claude Fable 5.1 |
+| OpenAI | GPT-6 Astra |
 | DeepSeek | none with image input yet: V4-Pro is text-only, and since 2026-09-14 the API routes it to V4.1 Flash until V4.1-Pro ships |
 
 | Tested with this connector | Status |
