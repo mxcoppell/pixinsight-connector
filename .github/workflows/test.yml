@@ -69,3 +69,33 @@ jobs:
           | tar xz mcp-publisher
       - run: ./mcp-publisher login github-oidc
       - run: ./mcp-publisher publish
+
+  github-release:            # after publish: the GitHub release, notes from CHANGELOG.md, with the .mcpb bundle
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 24 }
+      - name: Release notes are the CHANGELOG.md section for this version
+        run: >-
+          node -e "const fs = require('fs'); const v = require('./package.json').version;
+          const m = fs.readFileSync('CHANGELOG.md', 'utf8').match(new RegExp('^## ' + v.replace(/\./g, '\\\\.') + '\\\\n([\\\\s\\\\S]*?)(?=^## |(?![\\\\s\\\\S]))', 'm'));
+          if (!m || !m[1].trim()) { console.error('CHANGELOG.md has no section for ' + v); process.exit(1); }
+          fs.writeFileSync(process.env.RUNNER_TEMP + '/notes.md', m[1].trim() + '\\n');"
+      - name: Pack the .mcpb bundle with the runtime dependencies only
+        run: |
+          npm ci --omit=dev --ignore-scripts
+          npx -y @anthropic-ai/mcpb@2.1.2 pack . "$RUNNER_TEMP/pixinsight-connector-${GITHUB_REF_NAME#v}.mcpb"
+      - name: Create the release (or replace its bundle when re-run)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          bundle="$RUNNER_TEMP/pixinsight-connector-${GITHUB_REF_NAME#v}.mcpb"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$bundle" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$bundle" --title "pixinsight-connector ${GITHUB_REF_NAME#v}" --notes-file "$RUNNER_TEMP/notes.md" --verify-tag
+          fi

@@ -100,3 +100,9 @@ test('README.md installs the published npm package', async () => {
   assert.match(readme, /npx -y pixinsight-connector`/, 'README.md gives the npx command');
   assert.doesNotMatch(readme, /github:mxcoppell\/pixinsight-connector/, 'README.md still installs from GitHub');
 });
+
+// The github-release job in .github/workflows/test.yml takes the release notes from this section.
+test('CHANGELOG.md has a section for the package version', async () => {
+  const [pkg, changelog] = await Promise.all([readJson('package.json'), readFile(path.join(ROOT, 'CHANGELOG.md'), 'utf8')]);
+  assert.ok(changelog.split(/\r?\n/).includes(`## ${pkg.version}`), `add a "## ${pkg.version}" section to CHANGELOG.md`);
+});
