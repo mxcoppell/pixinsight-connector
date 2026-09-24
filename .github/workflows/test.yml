@@ -49,7 +49,18 @@ jobs:
       - name: Trusted publishing needs npm 11.5.1+
         run: npm install -g npm@^11.5.1
       - run: npm ci --ignore-scripts
-      - run: npm publish --provenance --access public
+      - name: Publish to npm (skipped when this version is already there, so a failed run can be re-run)
+        run: |
+          spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
+          if npm view "$spec" version >/dev/null 2>&1; then echo "$spec is already on npm"; else npm publish --provenance --access public; fi
+      - name: Wait until npm serves the new version (the MCP registry looks it up)
+        run: |
+          spec="$(node -p "const p = require('./package.json'); p.name + '@' + p.version")"
+          for i in $(seq 1 40); do
+            npm view "$spec" version --prefer-online >/dev/null 2>&1 && exit 0
+            sleep 15
+          done
+          echo "$spec did not appear on npm within 10 minutes"; exit 1
       - name: Install mcp-publisher
         env:
           MCP_PUBLISHER_VERSION: '1.8.1'
