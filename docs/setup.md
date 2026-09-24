@@ -86,7 +86,7 @@ All of these take image input. Prices are per million tokens, input / output, as
 |---|---|---|---|
 | GPT-6 Luna | OpenAI API | $0.10 / $0.50 | 1.05M context |
 | GLM-5.3-Flash | MIT open weights, Z.ai API | $0.15 / $0.50 | 320B MoE (18B active), 1M context |
-| DeepSeek V4.1 Flash | MIT open weights, DeepSeek API | $0.15 / $0.60 off-peak, double at peak | 552B MoE, 1M context |
+| DeepSeek V4.1 Flash | MIT open weights, DeepSeek API (`deepseek-flash`) | $0.15 / $0.60 off-peak, $0.30 / $1.20 at peak | 552B MoE, 1M context; the API downsizes images to about 1300 px (at most 1024 tokens each), so previews lose fine detail |
 | MiniMax M3 | open weights, MiniMax API | $0.30 / $1.20 (list $0.60 / $2.40) | 1M context; images bill at a separate rate |
 | Gemini 3.5 Flash-Lite | Gemini API | $0.30 / $2.50 | fastest Gemini 3.5-class model |
 | Gemini 3.8 Flash | Gemini API | $0.75 / $3.75 (introductory) | Google's strongest current model for agents |
@@ -101,6 +101,7 @@ Frontier models, for the hardest targets:
 | OpenAI | GPT-6 Astra, GPT-6 Sol |
 | Google | Gemini 3.8 Flash (Gemini 3.5 Pro is not yet released) |
 | Moonshot AI | Kimi K3: open weights, 2.8T MoE, 1M context, $3 / $15 |
+| DeepSeek | none with image input yet: V4-Pro is text-only, and since 2026-09-14 the API routes it to V4.1 Flash until V4.1-Pro ships |
 
 | Tested with this connector | Status |
 |---|---|
