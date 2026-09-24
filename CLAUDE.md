@@ -9,7 +9,7 @@ in both (`test/agent-instructions.test.mjs`).
 A generic MCP connector for PixInsight: `src/cli.mjs` starts a stdio MCP server (`src/server.mjs`) whose
 tools operate PixInsight through a file-based bridge (`src/bridge.mjs`, protocol in
 `docs/bridge-protocol.md`) and a PJSR watcher (`pjsr/watcher.template.js`) that `src/runtime.mjs`
-materializes and launches on the first tool call. Installed with `npm install -g github:mxcoppell/pixinsight-connector#v<version>` (or run with `npx`).
+materializes and launches on the first tool call. Installed with `npm install -g pixinsight-connector` (or run with `npx -y pixinsight-connector`).
 It contains no processing workflow; see `README.md`.
 
 ## The separation rule

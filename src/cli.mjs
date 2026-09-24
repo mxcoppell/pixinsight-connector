@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ============================================================================
 // pixinsight-connector bin entry: dispatches to a subcommand. `serve` (the default,
-// so a bare `pixinsight-connector` — or `npx -y github:mxcoppell/pixinsight-connector` —
+// so a bare `pixinsight-connector` — or `npx -y pixinsight-connector` —
 // with no arguments works as an MCP stdio server) connects the real server
 // over stdio. `doctor` runs the real diagnostics (src/doctor.mjs). `install`
 // edits no harness config: every harness registers the same stdio command, in
@@ -84,15 +84,15 @@ export async function doctor(args = [], deps = {}) {
   process.exitCode = result.ok ? 0 : 1;
 }
 
-const REPO = 'github:mxcoppell/pixinsight-connector';
+const PACKAGE = 'pixinsight-connector';
 
 export async function install(_args, version = readConnectorVersion()) {
-  const tag = `${REPO}#v${version}`;
+  const pinned = `${PACKAGE}@${version}`;
   process.stdout.write(
     'pixinsight-connector install: register this stdio MCP server with your agent harness.\n' +
-    `Install it once:\n  npm install -g ${tag}\n` +
+    `Install it once:\n  npm install -g ${pinned}\n` +
     'then register the command:\n  pixinsight-connector\n' +
-    `Or run it without installing (npx asks GitHub on every start):\n  npx -y ${tag}\n` +
+    `Or run it without installing (npx fetches it from npm):\n  npx -y ${pinned}\n` +
     'Each harness takes it in its own config; see the install table in the README:\n' +
     '  https://github.com/mxcoppell/pixinsight-connector#install\n' +
     'Then check the machine with: pixinsight-connector doctor\n'

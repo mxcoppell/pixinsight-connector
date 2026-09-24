@@ -94,10 +94,9 @@ test('every user_config value manifest.json maps into the environment is optiona
   }
 });
 
-test('every release pin in README.md names the package version', async () => {
-  const [pkg, readme] = await Promise.all([readJson('package.json'), readFile(path.join(ROOT, 'README.md'), 'utf8')]);
-  const pins = [...readme.matchAll(/github:mxcoppell\/pixinsight-connector#v(\d+\.\d+\.\d+)/g)].map((m) => m[1]);
-  assert.ok(pins.length >= 2, 'README.md pins the install and npx commands to a release');
-  assert.deepEqual([...new Set(pins)], [pkg.version], 'bump every README pin with the version');
-  assert.doesNotMatch(readme, /github:mxcoppell\/pixinsight-connector(?!#v)[`"\s]/, 'an unpinned install command in README.md');
+test('README.md installs the published npm package', async () => {
+  const readme = await readFile(path.join(ROOT, 'README.md'), 'utf8');
+  assert.match(readme, /npm install -g pixinsight-connector\n/, 'README.md installs from npm');
+  assert.match(readme, /npx -y pixinsight-connector`/, 'README.md gives the npx command');
+  assert.doesNotMatch(readme, /github:mxcoppell\/pixinsight-connector/, 'README.md still installs from GitHub');
 });
