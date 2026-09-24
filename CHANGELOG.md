@@ -2,6 +2,14 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.1.1
+
+- Published on npm as `pixinsight-connector` and listed in the MCP registry as
+  `io.github.mxcoppell/pixinsight-connector`. Install with `npm install -g pixinsight-connector`, or register
+  `npx -y pixinsight-connector`; `git` is no longer needed. The `install` command and the doctor hints print the
+  npm form.
+- Releases are published from the `v*` tag by CI, to npm with provenance and then to the MCP registry.
+
 ## 2.1.0
 
 - `measure_stars` locates each star's half-maximum crossing to a fraction of a pixel, interpolating linearly between
