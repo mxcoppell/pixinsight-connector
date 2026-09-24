@@ -186,18 +186,18 @@ test('measure_stars reports the star measurements as JSON numbers', async () => 
   });
 });
 
-test('measure_stars keeps the pack FWHM computation: 16 px scan over median + 5 MAD, half-max radius in four directions, doubled', async () => {
+test('measure_stars keeps the pack FWHM computation: 16 px scan over median + 5 MAD, interpolated half-max radius in four directions, doubled', async () => {
   const { api, emitted } = compilingApi({ replies: [J({ medianFWHM: 1, starsFound: 0, starsMeasured: 0 })] });
   await byName.measure_stars.handler(api, { view_id: 'RGB' });
   for (const line of [
     'var threshold = bgMedian + 5 * bgMAD;', 'var step = 16;', 'var halfBox = 10;', 'if (dist < 20) { isDupe = true; break; }',
     'if (stars.length >= 100) break;', 'var topStars = stars.slice(0, 30);', 'var halfMax = s.peak / 2;',
-    'if (getLum(px, py) < halfMax) { radii.push(r); break; }', 'if (radii.length >= 2) {', 'fwhms.push(avgRadius * 2); // FWHM = 2 * half-max radius',
+    'if (v < halfMax) { radii.push((r - 1) + (prev - halfMax) / (prev - v)); break; }', 'if (radii.length >= 2) {', 'fwhms.push(avgRadius * 2); // FWHM = 2 * half-max radius',
     'var medFWHM = fwhms.length > 0 ? fwhms[Math.floor(fwhms.length / 2)] : 0;',
   ]) assert.ok(emitted[0].includes(line), line);
 });
 
-test('measure_stars measured on a synthetic star field: disc stars of radius 2 give a 6 px FWHM', async () => {
+test('measure_stars measured on a synthetic star field: disc stars of radius 2 cross half-max between 2 and 3 px', async () => {
   // Stars on the 16 px scan grid, 32 px apart (so the 20 px de-duplication keeps each), colour 0.9/0.6/0.3.
   const centers = [];
   for (let cy = 11; cy < 120; cy += 32) for (let cx = 11; cx < 120; cx += 32) centers.push([cx, cy]);
@@ -207,9 +207,30 @@ test('measure_stars measured on a synthetic star field: disc stars of radius 2 g
   const out = parse(await byName.measure_stars.handler(api, { view_id: 'RGB' }));
   assert.equal(out.stars_found, centers.length);
   assert.equal(out.stars_measured, centers.length);
-  assert.equal(out.median_fwhm_px, 6);
+  const lum = (v) => 0.2126 * v[0] + 0.7152 * v[1] + 0.0722 * v[2];
+  const peak = lum(star), bg = lum([0.05, 0.05, 0.05]);
+  assert.ok(Math.abs(out.median_fwhm_px - 2 * (2 + (peak - peak / 2) / (peak - bg))) < 1e-9, String(out.median_fwhm_px));
   assert.ok(Math.abs(out.color_diversity - (1 - 0.3 / 0.9)) < 1e-9, String(out.color_diversity));
   assert.equal(out.background_median, 0.05);
+});
+
+test('measure_stars resolves Gaussian stars to a fraction of a pixel, not in 0.5 px steps', async () => {
+  // Mono Gaussian stars on the 16 px scan grid, 32 px apart, on a flat 0.001 pedestal. FWHM = 2 sqrt(2 ln 2) sigma.
+  const measure = async (sigma) => {
+    const centers = [];
+    for (let cy = 11; cy < 250; cy += 32) for (let cx = 11; cx < 250; cx += 32) centers.push([cx, cy]);
+    const img = new FakeImage(256, 256, 1, (x, y) => {
+      const [cx, cy] = centers.reduce((b, c) => ((x - c[0]) ** 2 + (y - c[1]) ** 2 < (x - b[0]) ** 2 + (y - b[1]) ** 2 ? c : b));
+      return 0.001 + 0.5 * Math.exp(-((x - cx) ** 2 + (y - cy) ** 2) / (2 * sigma * sigma));
+    });
+    const { api } = runtimeApi({ L: img });
+    return parse(await byName.measure_stars.handler(api, { view_id: 'L' })).median_fwhm_px;
+  };
+  const K = 2 * Math.sqrt(2 * Math.log(2));
+  const [a, b] = [await measure(1.5), await measure(1.6)];
+  assert.ok(Math.abs(a - K * 1.5) < 0.15, `sigma 1.5: ${a} vs ${K * 1.5}`);
+  assert.ok(Math.abs(b - K * 1.6) < 0.15, `sigma 1.6: ${b} vs ${K * 1.6}`);
+  assert.ok(b - a > 0.15 && b - a < 0.35, `a 0.1 px change in sigma moves the FWHM by about 0.24 px: ${a} -> ${b}`);
 });
 
 // ---------------------------------------------------------------------------
