@@ -71,13 +71,39 @@ one. `workspace_info` and `pixinsight-connector doctor` show every folder in use
 
 ## Models
 
+What the work needs, whatever the model:
+
 | Needs | Why |
 |---|---|
 | **Vision (required)** | `save_preview` returns a JPEG path and the agent has to look at it; without vision it works blind |
-| Sonnet-class or better | weaker models lose tool-call reliability and error discipline first |
-| Long multi-step tool use | tens to a hundred sequential calls, some taking minutes, all state inside PixInsight |
+| Reliable tool calling | tens to a hundred sequential calls, some taking minutes, all state inside PixInsight |
 | Long context | skill text, about 80 tool schemas and a transcript of numeric results |
 
-Closed: the Claude Sonnet/Opus, GPT-5 and Gemini Pro families. Open-weight: multimodal lines such as Kimi,
-MiniMax and Qwen's vision checkpoints. Pick a family's **multimodal** checkpoint, not its coding one: top open
-coding models are often text-only.
+**Test drive with a small, cheap model first.** A run is many calls, so the price per token matters more than usual.
+All of these take image input. Prices are per million tokens, input / output, as of 2026-09-24:
+
+| Model | Access | Price | Notes |
+|---|---|---|---|
+| GPT-6 Luna | OpenAI API | $0.10 / $0.50 | 1.05M context |
+| GLM-5.3-Flash | MIT open weights, Z.ai API | $0.15 / $0.50 | 320B MoE (18B active), 1M context |
+| DeepSeek V4.1 Flash | MIT open weights, DeepSeek API | $0.15 / $0.60 off-peak, double at peak | 552B MoE, 1M context |
+| MiniMax M3 | open weights, MiniMax API | $0.30 / $1.20 (list $0.60 / $2.40) | 1M context; images bill at a separate rate |
+| Gemini 3.5 Flash-Lite | Gemini API | $0.30 / $2.50 | fastest Gemini 3.5-class model |
+| Gemini 3.8 Flash | Gemini API | $0.75 / $3.75 (introductory) | Google's strongest current model for agents |
+| Claude Haiku 4.5 | Anthropic API | $1 / $5 | |
+| Qwen3.8-27B | Apache-2.0 open weights, run locally | free locally | 27B dense, 262K context; a 4-bit build fits a 24 GB GPU. Some serving stacks load it text-only: check that images reach the model |
+
+Frontier models, for the hardest targets:
+
+| Vendor | Models |
+|---|---|
+| Anthropic | Claude Opus 5.5, Claude Fable 5.1, Claude Sonnet 5 ($2 / $10) |
+| OpenAI | GPT-6 Astra, GPT-6 Sol |
+| Google | Gemini 3.8 Flash (Gemini 3.5 Pro is not yet released) |
+| Moonshot AI | Kimi K3: open weights, 2.8T MoE, 1M context, $3 / $15 |
+
+| Tested with this connector | Status |
+|---|---|
+| Claude models | run end to end |
+| Every other model above | meets the requirements on paper, not yet run; please report a run as an issue |
+| Open checkpoints | use the multimodal checkpoint: some coding checkpoints are text-only |
