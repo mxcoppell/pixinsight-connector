@@ -14,16 +14,16 @@ and every measurement returns numbers. The knowledge (which tools, in what order
 counts as good enough) lives in **skills**: markdown in your own repositories, public or private.
 
 ```mermaid
-%%{init: {'theme': 'base', 'flowchart': {'wrappingWidth': 320}, 'themeVariables': {'fontFamily': 'ui-sans-serif, system-ui, sans-serif', 'lineColor': '#a8a29e', 'textColor': '#78716c', 'edgeLabelBackground': '#fef3c7'}}}%%
+%%{init: {'theme': 'base', 'flowchart': {'wrappingWidth': 400, 'curve': 'basis', 'padding': 18}, 'themeVariables': {'fontFamily': "-apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Helvetica, Arial, sans-serif", 'lineColor': '#94a3b8', 'textColor': '#334155', 'edgeLabelBackground': '#e2e8f0'}}}%%
 flowchart TB
-    classDef know fill:#c2410c,stroke:#9a3412,stroke-width:1px,color:#fff7ed,rx:14,ry:14
-    classDef harness fill:#a16207,stroke:#854d0e,stroke-width:1px,color:#fefce8,rx:14,ry:14
-    classDef tool fill:#b45309,stroke:#92400e,stroke-width:1px,color:#fffbeb,rx:14,ry:14
-    classDef app fill:#78716c,stroke:#57534e,stroke-width:1px,color:#fafaf9
+    classDef know fill:#0f766e,stroke:#115e59,color:#f0fdfa,stroke-width:1px,rx:12,ry:12
+    classDef harness fill:#475569,stroke:#334155,color:#f8fafc,stroke-width:1px,rx:12,ry:12
+    classDef tool fill:#1e293b,stroke:#64748b,color:#f8fafc,stroke-width:1px,rx:12,ry:12
+    classDef app fill:#e2e8f0,stroke:#94a3b8,color:#0f172a,stroke-width:1px
     You(["You, in a chat session"]):::know
-    Skills("<b>THE KNOWLEDGE · yours</b><br/>your skills: order, values, quality gates<br/>kept in your own repositories"):::know
+    Skills("<b>The knowledge · yours</b><br/>your skills: order, values, quality gates<br/>kept in your own repositories"):::know
     Harness("<b>Any MCP agent harness</b><br/>Claude Code · Codex · Cursor · Gemini CLI · …"):::harness
-    Tools("<b>THE TOOLBOX · this connector</b><br/>~80 PixInsight operations as MCP tools<br/>measurements return numbers, never verdicts"):::tool
+    Tools("<b>The toolbox · this connector</b><br/>~80 PixInsight operations as MCP tools<br/>measurements return numbers, never verdicts"):::tool
     Bridge("<b>File bridge + watcher script</b><br/>starts PixInsight on the first call"):::tool
     PI(["PixInsight 1.9.5+"]):::app
     You --> Harness
@@ -31,6 +31,7 @@ flowchart TB
     Harness -- MCP tool calls --> Tools
     Tools --> Bridge
     Bridge <--> PI
+    linkStyle default stroke:#8b949e,stroke-width:1.5px
 ```
 
 ## Install
