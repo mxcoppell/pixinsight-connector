@@ -257,7 +257,7 @@ const DEFAULT_AUTOSTART_POLL_MS = 500;
  */
 export function spawnFailureMessage(bin, err) {
   return `The PixInsight executable "${bin}" could not be run (${err?.code ?? err?.message ?? err}). ` +
-    'Set PIXINSIGHT_BIN to the PixInsight executable, or check `npx -y github:mxcoppell/pixinsight-connector doctor`.';
+    'Set PIXINSIGHT_BIN to the PixInsight executable, or check `npx -y pixinsight-connector doctor`.';
 }
 const DEFAULT_AUTOSTART_TIMEOUT_MS = 90_000;
 

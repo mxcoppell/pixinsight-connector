@@ -223,7 +223,7 @@ async function watcherCheck(platform, workspace, id, homeDir, osName, watcherFs)
       name: 'watcher',
       ok: false,
       detail: `The watcher could not be rendered: ${e?.message ?? e}`,
-      hint: 'Reinstall the connector (npx -y github:mxcoppell/pixinsight-connector), then re-run doctor.',
+      hint: 'Reinstall the connector (npm install -g pixinsight-connector@latest), then re-run doctor.',
     };
   }
 }

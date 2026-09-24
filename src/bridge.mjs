@@ -78,7 +78,7 @@ const MAX_PICKUP_RELAUNCHES = 2;
 // "confirmed not running" case right after it, so callers see one consistent error type across
 // this whole failure class rather than a different one depending on which branch was hit.
 const AUTOSTART_FAILED_MESSAGE =
-  'PixInsight could not be started. Check `npx -y github:mxcoppell/pixinsight-connector doctor`, or set `PIXINSIGHT_BIN` if it is installed somewhere unusual.';
+  'PixInsight could not be started. Check `npx -y pixinsight-connector doctor`, or set `PIXINSIGHT_BIN` if it is installed somewhere unusual.';
 
 // The other BridgeCrashError site: a crash detected mid-command (two consecutive failed liveness
 // checks while a `send()` was already in flight), not the pre-flight check above. Unlike the old
@@ -88,7 +88,7 @@ const AUTOSTART_FAILED_MESSAGE =
 // simply to retry: ensureWatcher() runs again on the next send()/pjsr() call and, with autostart
 // now wired in, will relaunch PixInsight itself.
 const MID_COMMAND_CRASH_MESSAGE =
-  'PixInsight appears to have crashed mid-command. It will be started again automatically on the next command — retry. If it keeps crashing, check `npx -y github:mxcoppell/pixinsight-connector doctor`.';
+  'PixInsight appears to have crashed mid-command. It will be started again automatically on the next command — retry. If it keeps crashing, check `npx -y pixinsight-connector doctor`.';
 
 // A watcher that never beat while PixInsight runs: the connector cannot tell which of these it is, so
 // it names both and claims neither.
