@@ -9,12 +9,12 @@
     "id": "1385783662"
   },
   "websiteUrl": "https://github.com/mxcoppell/pixinsight-connector#readme",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "pixinsight-connector",
-      "version": "2.1.0",
+      "version": "2.1.1",
       "transport": {
         "type": "stdio"
       },
