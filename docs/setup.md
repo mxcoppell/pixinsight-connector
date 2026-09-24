@@ -5,7 +5,7 @@ the environment variables, where PixInsight is looked for, and which models work
 
 ## Registering with a harness
 
-The server command is `pixinsight-connector` (after `npm install -g github:mxcoppell/pixinsight-connector#v2.0.0`).
+The server command is `pixinsight-connector` (after `npm install -g github:mxcoppell/pixinsight-connector#v2.1.0`).
 Register it under the name `pixinsight`. A harness that cannot find the command takes its full path: run
 `npm prefix -g` and append `bin/pixinsight-connector`.
 
@@ -26,7 +26,7 @@ Register it under the name `pixinsight`. A harness that cannot find the command 
 Every `mcpServers` entry is `{"pixinsight": {"command": "pixinsight-connector"}}`, plus an optional `env`. Three
 shapes differ: **Codex** is TOML under `mcp_servers` (underscore), **OpenCode** wants `command` as an array, and
 **VS Code** names the top-level key `servers`. With npx instead of an install, the command is `npx` and the args
-are `["-y", "github:mxcoppell/pixinsight-connector#v2.0.0"]`; npx asks GitHub at every start, so the server fails
+are `["-y", "github:mxcoppell/pixinsight-connector#v2.1.0"]`; npx asks GitHub at every start, so the server fails
 to start while GitHub is unreachable.
 
 ## Target folder and files

@@ -123,7 +123,7 @@ const measureStarsTool = {
   name: 'measure_stars',
   description: 'Measure the stars of a view by pixel sampling. Candidates are local maxima of luminance found by a 16 px grid scan above median + 5 x MAD, '
     + 'refined within 5x5, de-duplicated within 20 px (at most 100 kept); the 30 brightest are measured. FWHM of a star = 2 x the mean radius, over the four '
-    + 'axis directions (up to 10 px), where luminance drops below half its peak; colour diversity of a star = max - min of its peak RGB divided by the largest channel. '
+    + 'axis directions (up to 10 px), where luminance drops below half its peak, located to a fraction of a pixel by linear interpolation between the samples either side; colour diversity of a star = max - min of its peak RGB divided by the largest channel. '
     + `Returns JSON: median_fwhm_px, color_diversity (median), stars_found, stars_measured, median_peak, p25_peak, background_median, star_background_contrast `
     + `(median_peak / background_median, 0 when background_median <= 0.001), and up to 10 samples of each. ${LUMA}.`,
   inputSchema: viewSchema('View to measure'),

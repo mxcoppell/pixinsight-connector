@@ -39,7 +39,7 @@ export { MonoImageError };
 /**
  * Stars: bright local maxima found by a 16 px scan over median + 5 MAD, de-duplicated within 20 px,
  * the 30 brightest measured. FWHM = twice the mean half-maximum radius over four directions
- * (luminance, up to 10 px); colour diversity = max-min of the peak's max-normalised RGB.
+ * (luminance, up to 10 px, the crossing interpolated linearly between the samples either side); colour diversity = max-min of the peak's max-normalised RGB.
  */
 export async function measureStars(api, viewId) {
   const data = await measureJson(api, `
@@ -117,16 +117,19 @@ export async function measureStars(api, viewId) {
       var s = topStars[i];
       var cx = s.x, cy = s.y;
 
-      // FWHM: measure half-max radius in 4 directions
+      // FWHM: half-max radius in 4 directions, the crossing interpolated between the samples either side
       var halfMax = s.peak / 2;
       var radii = [];
       var dirs = [[1,0],[0,1],[-1,0],[0,-1]];
       for (var d = 0; d < 4; d++) {
+        var prev = s.peak;
         for (var r = 1; r <= halfBox; r++) {
           var px = cx + dirs[d][0] * r;
           var py = cy + dirs[d][1] * r;
           if (px < 0 || px >= img.width || py < 0 || py >= img.height) break;
-          if (getLum(px, py) < halfMax) { radii.push(r); break; }
+          var v = getLum(px, py);
+          if (v < halfMax) { radii.push((r - 1) + (prev - halfMax) / (prev - v)); break; }
+          prev = v;
         }
       }
       if (radii.length >= 2) {

@@ -2,7 +2,7 @@
   "manifest_version": "0.3",
   "name": "pixinsight-connector",
   "display_name": "PixInsight Connector",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Operate PixInsight from an MCP client: PixInsight operations as tools, extensible by packs.",
   "long_description": "A generic MCP connector for PixInsight. Its tools open images, read statistics, run processes, build masks and export results through a file-based bridge; PixInsight and the bridge's watcher script are started on the first tool call. It contains no processing workflow: no pipeline, no ordering, no recommended parameters. Tool packs add tools at startup. Community project, not affiliated with or endorsed by Pleiades Astrophoto.",
   "author": {

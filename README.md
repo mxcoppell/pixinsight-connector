@@ -41,7 +41,7 @@ Needs Node 22+, `git` and PixInsight 1.9.5+. The same three steps work whether y
 **1. Install the connector**, pinned to a release:
 
 ```sh
-npm install -g github:mxcoppell/pixinsight-connector#v2.0.0
+npm install -g github:mxcoppell/pixinsight-connector#v2.1.0
 ```
 
 **2. Register it** with your agent harness as the MCP server `pixinsight`. Claude Code:
@@ -65,7 +65,7 @@ pixinsight-connector doctor
 ```
 
 PixInsight and its watcher script start on the first tool call; there is nothing else to launch. Upgrade by
-re-running step 1 with the new tag. Without installing, register `npx -y github:mxcoppell/pixinsight-connector#v2.0.0`
+re-running step 1 with the new tag. Without installing, register `npx -y github:mxcoppell/pixinsight-connector#v2.1.0`
 as the command instead (it needs GitHub at every start).
 
 ## Where files go
