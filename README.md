@@ -66,7 +66,8 @@ pixinsight-connector doctor
 
 PixInsight and its watcher script start on the first tool call; there is nothing else to launch. Upgrade with
 `npm install -g pixinsight-connector@latest`. Without installing, register `npx -y pixinsight-connector` as the
-command instead (npx fetches it from npm, so the first start needs the network).
+command instead (npx fetches it from npm, so the first start needs the network). From pixinsight-mcp 1.x: point
+your `pixinsight` entry at `pixinsight-connector` (not a second server) and `npm uninstall -g pixinsight-mcp`.
 
 ## Where files go
 
