@@ -5,7 +5,8 @@
   "description": "Operate PixInsight from any MCP agent. Community project, not affiliated with Pleiades Astrophoto",
   "repository": {
     "url": "https://github.com/mxcoppell/pixinsight-connector",
-    "source": "github"
+    "source": "github",
+    "id": "1385783662"
   },
   "websiteUrl": "https://github.com/mxcoppell/pixinsight-connector#readme",
   "version": "2.0.0",
