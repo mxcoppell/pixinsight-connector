@@ -10,4 +10,5 @@ Run `pixinsight-connector doctor` first: it checks the install, PixInsight, the 
 | `View not found: …` | A view id was mistyped or the view was closed; the error lists the views that are open |
 | `run_plate_solve` fails | It needs an RA/Dec seed near the true center (`ra_deg`, `dec_deg`); a wrong seed fails to solve |
 | `PixInsight is running but this target's watcher never started` | PixInsight runs one script at a time: a session in another target folder, or a long script, may hold it, so retry when it is free. Or PixInsight could not open the watcher script: its Process Console says why |
+| The agent sees every tool twice, or calls time out after an upgrade from pixinsight-mcp 1.x | Both servers are registered (under two names) and compete for PixInsight's one script slot. Keep one entry named `pixinsight` with the command `pixinsight-connector`, remove the other, and run `npm uninstall -g pixinsight-mcp` |
 | `STOPPED BY USER` | Pause/Abort was pressed in PixInsight; nothing runs until you say continue and the agent calls `resume_bridge` |
