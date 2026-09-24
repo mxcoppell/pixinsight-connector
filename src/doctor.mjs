@@ -1,6 +1,6 @@
 // ============================================================================
 // `doctor`: one read-only pass over every assumption the connector makes about
-// the machine it's running on, turning "it doesn't work" into a paste. Twelve
+// the machine it's running on, turning "it doesn't work" into a paste. Thirteen
 // checks, each a single line of output: `{ name, ok, detail, hint? }`, run in a
 // fixed order. It writes no file anywhere; its one side effect is binding the
 // launch-mutex port for an instant to see whether it is free.
@@ -92,6 +92,29 @@ function nodeCheck() {
   const check = { name: 'node', ok, detail: `Node ${process.version} (>=${MIN_NODE_MAJOR} required)` };
   if (!ok) check.hint = `Install Node.js ${MIN_NODE_MAJOR} or newer, then re-run doctor.`;
   return check;
+}
+
+// pixinsight-mcp 1.x is this connector under its old name. Its command still on PATH usually means a
+// harness entry still runs it, and two servers driving one PixInsight compete for its one script slot.
+function legacyCommandCheck(env, osName, homeDir, existsSync) {
+  const win = osName === 'win32';
+  const p = win ? path.win32 : path.posix;
+  const key = win ? Object.keys(env).find((k) => k.toUpperCase() === 'PATH') : 'PATH';
+  const dirs = (key && env[key] ? env[key] : '').split(win ? ';' : ':').filter(Boolean);
+  const names = win ? ['pixinsight-mcp.cmd', 'pixinsight-mcp.ps1', 'pixinsight-mcp.exe', 'pixinsight-mcp'] : ['pixinsight-mcp'];
+  for (const dir of dirs) {
+    for (const n of names) {
+      const found = p.join(dir, n);
+      if (!existsSync(found)) continue;
+      return {
+        name: 'pixinsight-mcp',
+        ok: false,
+        detail: `pixinsight-mcp 1.x (this connector's old name) is still installed at ${redactHome(found, homeDir)}.`,
+        hint: 'Run npm uninstall -g pixinsight-mcp, and make sure your harness registers one PixInsight server: pixinsight, with the command pixinsight-connector.',
+      };
+    }
+  }
+  return { name: 'pixinsight-mcp', ok: true, detail: 'No pixinsight-mcp 1.x command on PATH.' };
 }
 
 // `platform` is a soft check: an unresolved platform (null) is a hard
@@ -370,6 +393,7 @@ function pathExistsCheck(name, label, filePath, platform, homeDir, missingHint) 
  * @param {object} [opts.workspace] - a src/workspace.mjs workspace; defaults to one over cwd/env/homeDir/osName.
  * @param {() => string} [opts.machineId] - this machine's id; defaults to the one from its hostname.
  * @param {typeof import('node:net')} [opts.net] - for the 'launch-mutex' check; defaults to node:net.
+ * @param {(p: string) => boolean} [opts.existsSync] - for the 'pixinsight-mcp' check; defaults to fs.existsSync.
  * @returns {Promise<{ok: boolean, checks: Array<{name:string, ok:boolean, detail:string, hint?:string}>}>}
  */
 export async function runDoctor(opts = {}) {
@@ -385,6 +409,7 @@ export async function runDoctor(opts = {}) {
 
   const checks = [
     nodeCheck(),
+    legacyCommandCheck(env, osName, homeDir, opts.existsSync ?? fs.existsSync),
     platformCheck(platform, env, homeDir, opts.platformError, osName),
     pixinsightBinaryCheck(platform, homeDir),
     await pixinsightRunningCheck(probe, env),

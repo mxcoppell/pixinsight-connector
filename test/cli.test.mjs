@@ -124,7 +124,7 @@ test('doctor --json exits 0 and prints valid, parseable JSON matching runDoctor\
   const parsed = JSON.parse(stdout); // throws if this isn't valid JSON
   assert.equal(parsed.ok, true);
   assert.ok(Array.isArray(parsed.checks));
-  assert.equal(parsed.checks.length, 12);
+  assert.equal(parsed.checks.length, 13);
   for (const c of parsed.checks) {
     assert.equal(typeof c.name, 'string');
     assert.equal(typeof c.ok, 'boolean');
