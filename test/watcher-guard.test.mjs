@@ -396,3 +396,44 @@ test('mcpWriteWatcherInfo writes { watcherVersion, pixinsightVersion, startedAt 
   ctx.File.writeTextFile = () => { throw new Error('read-only'); };
   vm.runInContext('mcpWriteWatcherInfo(1)', ctx); // a failed write never stops the watcher
 });
+
+// handleRunScript with the real snippet runner, in a vm whose console stands in for PixInsight's.
+function runScriptHarness() {
+  const ctx = vm.createContext({
+    console: { beginLog: () => {}, endLog: () => '', abortRequested: false, abortEnabled: true },
+    CoreApplication: { processEvents: () => {} },
+  });
+  vm.runInContext(['mcpErrorText', 'mcpConsoleErrors', 'mcpAbortableProcessEvents', 'mcpRunSnippet', 'handleRunScript'].map(functionSource).join('\n'), ctx);
+  return (code) => {
+    try {
+      return { ok: vm.runInContext('handleRunScript', ctx)({ parameters: { code } }) };
+    } catch (e) {
+      return { error: e.message };
+    }
+  };
+}
+
+test('a snippet that throws a plain string (as PixInsight\'s process setters do) reports that string, not "undefined"', () => {
+  const run = runScriptHarness();
+  const r = run('throw "IntegerResample.downsamplingMode(): Invalid argument type: signed integer value expected.";');
+  assert.equal(r.error, 'Script error: IntegerResample.downsamplingMode(): Invalid argument type: signed integer value expected.');
+});
+
+test('a snippet that throws an Error reports its message, and a throw with no message still says what was thrown', () => {
+  const run = runScriptHarness();
+  assert.equal(run('noSuchThing.x = 1;').error, 'Script error: noSuchThing is not defined');
+  assert.equal(run('throw new Error("");').error, 'Script error: Error');
+  assert.equal(run('throw undefined;').error, 'Script error: undefined');
+  assert.equal(run('throw 42;').error, 'Script error: 42');
+});
+
+test('a snippet that throws a falsy value (undefined, 0, "", false) fails; it is not reported as a success', () => {
+  const run = runScriptHarness();
+  for (const v of ['undefined', '0', '""', 'false', 'null']) assert.ok(run(`throw ${v};`).error, `throw ${v} was reported as a success`);
+  assert.equal(run('1 + 1').ok.outputs.consoleOutput, '2');
+});
+
+test('every place the watcher reports a caught error goes through mcpErrorText', () => {
+  const outside = TEMPLATE.replace(functionSource('mcpErrorText'), '').split('\n').filter((l) => !l.trim().startsWith('//'));
+  assert.deepEqual(outside.filter((l) => /\b(e|failure)\.message\b/.test(l)), []);
+});

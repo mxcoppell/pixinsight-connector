@@ -2,6 +2,15 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.1.3
+
+- `run_pjsr` and every other tool report what a failing script actually threw. PixInsight's own methods and process
+  setters throw a plain string, not an Error, which was reported as `Script error: undefined`; an invalid process
+  parameter now reads, for example, `Script error: IntegerResample.downsamplingMode(): Invalid argument type: signed
+  integer value expected.`
+- A script that throws a falsy value (`undefined`, `0`, `""`, `false`, `null`) fails instead of being reported as a
+  success.
+
 ## 2.1.2
 
 - `doctor` has a `pixinsight-mcp` check: it fails when the 1.x command (this connector's old name) is still on

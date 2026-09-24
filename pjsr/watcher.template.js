@@ -253,19 +253,29 @@ function mcpConsoleErrors(logText) {
    return found.slice(-6);
 }
 
+// PixInsight's own methods and process setters throw a plain string, not an Error, so
+// `e.message` is undefined for them; fall back to the thrown value itself.
+function mcpErrorText(e) {
+   if (e !== null && typeof e === "object" && e.message !== undefined && e.message !== null && String(e.message) !== "")
+      return String(e.message);
+   return String(e);
+}
+
 function handleRunScript(command) {
    var code = command.parameters.code;
    var result;
-   var failure = null;
+   var failed = false;
+   var failure;
    console.beginLog();
    try {
       result = mcpRunSnippet(mcpAbortableProcessEvents, code);
    } catch (e) {
+      failed = true;
       failure = e;
    }
    var consoleErrors = mcpConsoleErrors(console.endLog());
-   if (failure) {
-      throw new Error("Script error: " + failure.message +
+   if (failed) {
+      throw new Error("Script error: " + mcpErrorText(failure) +
          (consoleErrors.length ? " | Console: " + consoleErrors.join(" ; ") : ""));
    }
    return {
@@ -380,7 +390,7 @@ function processNextCommand() {
       commandJson = readTextFile(filePath);
       command = JSON.parse(commandJson);
    } catch (e) {
-      console.criticalln("[MCP Watcher] Failed to parse command file: " + filePath + " - " + e.message);
+      console.criticalln("[MCP Watcher] Failed to parse command file: " + filePath + " - " + mcpErrorText(e));
       mcpQuarantineCommand(filePath);
       return true;
    }
@@ -425,7 +435,7 @@ function processNextCommand() {
          message: handlerResult.message || ""
       };
    } catch (e) {
-      console.criticalln("[MCP Watcher] Error executing " + command.tool + ": " + e.message);
+      console.criticalln("[MCP Watcher] Error executing " + command.tool + ": " + mcpErrorText(e));
       resultObj = {
          id: command.id,
          timestamp: getTimestamp(),
@@ -433,7 +443,7 @@ function processNextCommand() {
          process: command.process,
          duration_ms: Date.now() - startTime,
          error: {
-            message: e.message,
+            message: mcpErrorText(e),
             type: e.name || "Error",
             stack: e.stack || ""
          }
@@ -447,7 +457,7 @@ function processNextCommand() {
       console.writeln("[MCP Watcher] Result written: " + resultObj.status +
          " (" + resultObj.duration_ms + "ms)");
    } catch (e) {
-      console.criticalln("[MCP Watcher] Failed to write result: " + e.message);
+      console.criticalln("[MCP Watcher] Failed to write result: " + mcpErrorText(e));
    }
 
    // Delete the claimed command file (remembered and skipped if it cannot be deleted).
