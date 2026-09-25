@@ -29,6 +29,13 @@ shapes differ: **Codex** is TOML under `mcp_servers` (underscore), **OpenCode** 
 **VS Code** names the top-level key `servers`. With npx instead of an install, the command is `npx` and the args
 are `["-y", "pixinsight-connector"]`; npx fetches the package from npm, so the first start needs the network.
 
+## With the companion skills
+
+[pixinsight-connector-skills](https://github.com/mxcoppell/pixinsight-connector-skills) is a plugin that registers
+this connector (pinned to a version) together with skills for environment preflight, dataset intake, a basic LRGB
+flow and troubleshooting. Installed that way, do not also register `pixinsight` by hand: two servers driving one
+PixInsight compete for its single script slot. Its README has the install command for each harness.
+
 ## Target folder and files
 
 The tools work in the folder `set_workspace` names, else `PIXINSIGHT_CONNECTOR_WORKSPACE` (`~/` allowed), else

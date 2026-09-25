@@ -401,15 +401,20 @@ function boxCurve(center, bandwidth) {
   return pts.join(',');
 }
 
-// MARS database files PixInsight is configured with (Process > Global > MARS).
-function marsFilesFromSettings(api) {
+// MARS database files PixInsight is configured with (MultiscaleGradientCorrection preferences),
+// whether or not they still exist. PJSR cannot read another module's settings, so the file is read here.
+export function configuredMarsFiles(api) {
   requireInstall(api);
   try {
     const xml = fs.readFileSync(api.platform.settingsPath, 'utf-8');
-    return [...xml.matchAll(/<v k="MARSDatabaseFilePath\d+" t="s">([^<]+)<\/v>/g)].map((m) => m[1]).filter((p) => fs.existsSync(p));
+    return [...xml.matchAll(/<v k="MARSDatabaseFilePath\d+" t="s">([^<]+)<\/v>/g)].map((m) => m[1]);
   } catch {
     return [];
   }
+}
+
+function marsFilesFromSettings(api) {
+  return configuredMarsFiles(api).filter((p) => fs.existsSync(p));
 }
 
 // The names a grouped curve name stands for: "Sony IMX411/455/461/533/571" -> "Sony IMX411",

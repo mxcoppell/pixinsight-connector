@@ -79,12 +79,16 @@ export async function doctor(args = [], deps = {}) {
       if (!c.ok && c.hint) process.stdout.write(`        hint: ${c.hint}\n`);
     }
     process.stdout.write(`\n${result.ok ? 'All checks passed.' : 'Some checks failed — see hints above.'}\n`);
+    process.stdout.write(`\n${SKILLS_NOTE}\n`);
   }
 
   process.exitCode = result.ok ? 0 : 1;
 }
 
 const PACKAGE = 'pixinsight-connector';
+const SKILLS_NOTE =
+  'Companion skills (environment preflight, dataset intake, a basic LRGB flow, troubleshooting):\n' +
+  '  https://github.com/mxcoppell/pixinsight-connector-skills';
 
 export async function install(_args, version = readConnectorVersion()) {
   const pinned = `${PACKAGE}@${version}`;
@@ -95,7 +99,8 @@ export async function install(_args, version = readConnectorVersion()) {
     `Or run it without installing (npx fetches it from npm):\n  npx -y ${pinned}\n` +
     'Each harness takes it in its own config; see the install table in the README:\n' +
     '  https://github.com/mxcoppell/pixinsight-connector#install\n' +
-    'Then check the machine with: pixinsight-connector doctor\n'
+    'Then check the machine with: pixinsight-connector doctor\n' +
+    `${SKILLS_NOTE}\n`
   );
 }
 

@@ -5,6 +5,7 @@ The connector ships no technique. Technique lives here: skills (markdown that gu
 
 | Name | Kind | Author | What it does | Visibility |
 |---|---|---|---|---|
+| `mxcoppell/pixinsight-connector-skills` | Skills | mxcoppell | Environment preflight (`inspect_environment`), dataset intake, a basic all-linear LRGB flow and troubleshooting; installable as a plugin that also registers this connector | Public |
 | `mxcoppell/pixinsight-pack-astro` | Pack | mxcoppell | Folded into the connector in 1.2.0: its stretch, detail, mask, narrowband, star and measurement tools are core tools now, and the values it used as defaults now belong in skills. Do not load it with 1.2.0 or later: it would replace the core tools of the same names | Archived at the 1.2.0 release |
 
 Private entries are listed so you know they exist and what shape a skill or pack can take; you cannot

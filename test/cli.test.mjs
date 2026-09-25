@@ -64,6 +64,7 @@ test('install prints guidance without throwing', async () => {
   assert.match(out, /^  pixinsight-connector$/m, 'prints the harness-neutral server command');
   assert.match(out, /npx -y pixinsight-connector@9\.8\.7\n/, 'prints the pinned npx alternative');
   assert.match(out, /README/, 'points at the README install table');
+  assert.match(out, /github\.com\/mxcoppell\/pixinsight-connector-skills/, 'points at the companion skills');
   assert.doesNotMatch(out, /\b(claude|codex|opencode|cursor)\b/i, 'names no particular harness');
   assert.doesNotMatch(out, /later phase/i, 'no stale "lands in a later phase" text');
 });
