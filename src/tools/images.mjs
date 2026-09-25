@@ -139,7 +139,7 @@ const renameView = {
 
 const cloneImage = {
   name: 'clone_image',
-  description: 'Clone an image to a backup view, which can be restored from later with restore_from_clone.',
+  description: 'Clone an image to a backup view, which can be restored from later with restore_from_clone. The clone keeps the image\'s FITS keywords, astrometric solution and view properties.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -165,6 +165,16 @@ const cloneImage = {
       clone.mainView.beginProcess();
       clone.mainView.image.assign(srcW.mainView.image);
       clone.mainView.endProcess();
+      // A clone is a new window: carry over what describes the image, not just the pixels.
+      clone.keywords = srcW.keywords;
+      if (srcW.hasAstrometricSolution) clone.copyAstrometricSolution(srcW);
+      var props = srcW.mainView.properties;
+      for (var i = 0; i < props.length; ++i) {
+        try {
+          clone.mainView.setPropertyValue(props[i], srcW.mainView.propertyValue(props[i]));
+          clone.mainView.setPropertyAttributes(props[i], srcW.mainView.propertyAttributes(props[i]));
+        } catch (e) {}
+      }
       clone.hide();
       'OK';
     `);

@@ -228,7 +228,7 @@ test('a failed statistics read after a successful process does not turn the resu
 
 // --- find_filters: grouped curve names ---
 
-async function findFilters(t, input, names = [['Sony IMX411/455/461/533/571', 'Q'], ['Sony IMX455 (test)', 'Q'], ['Sony IMX4550', 'Q'], ['Sony IMX585', 'Q'],
+async function findFilters(t, input, names = [['Sony IMX411/455/461/533/571', 'Q'], ['Sony IMX533 (test)', 'Q'], ['Sony IMX5330', 'Q'], ['Sony IMX585', 'Q'],
   ['Canon Full Spectrum B / Antlia ALP-T', 'B'], ['Astronomik Ha 6nm', 'L']]) {
   const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
   const { tmpdir } = await import('node:os');
@@ -245,7 +245,7 @@ async function findFilters(t, input, names = [['Sony IMX411/455/461/533/571', 'Q
 }
 
 test('find_filters: a sensor number matches the grouped curve "Sony IMX411/455/461/533/571"', async (t) => {
-  for (const query of ['IMX455', 'imx533', 'Sony IMX571', 'IMX411']) {
+  for (const query of ['IMX533', 'imx461', 'Sony IMX571', 'IMX411']) {
     const r = await findFilters(t, { query, channel: 'Q' });
     assert.ok(r.names.includes('Sony IMX411/455/461/533/571 [Q]'), `${query}: ${JSON.stringify(r.names)}`);
   }
@@ -255,8 +255,8 @@ test('find_filters: a sensor number matches the grouped curve "Sony IMX411/455/4
 });
 
 test('find_filters: direct matches (exact, then substring) come before grouped-name matches', async (t) => {
-  const r = await findFilters(t, { query: 'IMX455', channel: 'Q' });
-  assert.deepEqual(r.names, ['Sony IMX455 (test) [Q]', 'Sony IMX4550 [Q]', 'Sony IMX411/455/461/533/571 [Q]']);
+  const r = await findFilters(t, { query: 'IMX533', channel: 'Q' });
+  assert.deepEqual(r.names, ['Sony IMX533 (test) [Q]', 'Sony IMX5330 [Q]', 'Sony IMX411/455/461/533/571 [Q]']);
   const exact = await findFilters(t, { query: 'sony imx585' });
   assert.deepEqual(exact.names, ['Sony IMX585 [Q]']);
 });

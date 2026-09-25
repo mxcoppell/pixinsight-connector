@@ -105,6 +105,15 @@ test('export_image resolves a relative file_path under <workspace>/output and cr
   assert.ok(out.text.includes(target), out.text);
 });
 
+test('clone_image carries keywords, the astrometric solution and view properties into the clone', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: [JSON.stringify({ w: 10, h: 10, ch: 3, color: true }), 'OK'] });
+  await byName.clone_image.handler(apiFrom(ctx), { source_id: 'RGB', clone_id: 'RGB_backup' });
+  const js = emitted[1];
+  for (const step of ['clone.keywords = srcW.keywords', 'clone.copyAstrometricSolution(srcW)', 'clone.mainView.setPropertyValue(']) {
+    assert.ok(js.indexOf(step) > js.indexOf('image.assign('), `${step} after the pixels are copied`);
+  }
+});
+
 test('export_image carries keywords, the astrometric solution and view properties into the saved copy', async (t) => {
   const ws = tempWorkspace(t);
   const { ctx, emitted } = createFakeBridge({ replies: ['10'] });
