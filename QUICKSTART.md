@@ -55,7 +55,7 @@ NGC2244/                        <- open the agent here
 Open the agent **in the target folder** and paste:
 
 ```text
-Process the LRGB masters in this folder with the pixinsight-lrgb-linear-basic skill.
+Process the LRGB masters in this folder with the basic LRGB skill from pixinsight-connector-skills.
 Run preflight and target intake first. Ask me anything the headers don't answer.
 ```
 
