@@ -11,8 +11,9 @@ Each release's full notes are on its [GitHub release](https://github.com/mxcoppe
   BlurXTerminator, NoiseXTerminator and StarXTerminator run once on a 64x64 image to report their version, ML
   model version and gpu/cpu. Also free memory and free space on the workspace volume. Temporary images are closed.
 - `doctor` and `install` name the companion skills repository, `mxcoppell/pixinsight-connector-skills`.
-- A Gaia release with no database files prints `No database files have been selected`; `inspect_environment`
-  reports that per release instead of failing the call.
+- A Gaia release with no database files reports `valid: false`; a console error PixInsight prints during the
+  query (`No database files have been selected`, seen on the first query of a session) is reported in that
+  release's `error` instead of failing the call.
 
 ## 2.1.3
 
