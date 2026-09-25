@@ -48,11 +48,11 @@ test('every generated PJSR snippet parses as a script', () => {
 });
 
 test('gaia snippet asks every release with get-info and captures its console errors', () => {
-  const code = gaiaPjsr(62.5, 33.4);
+  const code = gaiaPjsr(150.1, 20.2);
   assert.match(code, /command = "get-info"/);
   assert.match(code, /\["DR2",1\],\["EDR3",2\],\["DR3",3\],\["DR3\/SP",4\]/);
   assert.match(code, /console\.beginLog\(\)/);
-  assert.match(code, /centerRA = 62\.5; s\.centerDec = 33\.4/);
+  assert.match(code, /centerRA = 150\.1; s\.centerDec = 20\.2/);
 });
 
 test('mars and xterminator snippets close every window they create, in a finally block', () => {
@@ -113,7 +113,7 @@ test('inspectEnvironment: all sections, MARS files from settings including one t
     });
     const api = apiFrom(ctx, { workspace: { dir: tmpdir() } });
     api.platform = { ...api.platform, settingsPath: p };
-    const out = await inspectEnvironment(api, { ra_deg: 62.5, dec_deg: 33.4 });
+    const out = await inspectEnvironment(api, { ra_deg: 150.1, dec_deg: 20.2 });
     assert.equal(emitted.length, 3);
     assert.match(emitted[1], /\/tmp\/nope\.xmars/, 'a configured file that does not exist is still tested');
     assert.equal(out.pixinsightVersion, '1.9.5');

@@ -28,7 +28,7 @@ function liveApi() {
 test('inspect_environment reports every section from a real install and leaves no probe image open', live, async () => {
   const api = liveApi();
   const before = (await api.listImages()).map((i) => i.id ?? i);
-  const out = await inspectEnvironment(api, { ra_deg: 62.5, dec_deg: 33.4 });
+  const out = await inspectEnvironment(api, { ra_deg: 150.1, dec_deg: 20.2 });
   assert.match(out.pixinsightVersion, /^\d+\.\d+\.\d+$/);
   assert.equal(out.gaia.releases.length, 4);
   for (const r of out.gaia.releases) assert.equal(typeof r.valid, 'boolean');

@@ -207,19 +207,19 @@ test('open_image reports a failed open as an error', async () => {
 
 test('open_image answers a missing file itself, listing the image files in that folder', async () => {
   const { ctx, emitted } = createFakeBridge();
-  const dir = path.dirname(imageFile('IC410_Lum.xisf'));
-  imageFile('IC410_Red.xisf');
+  const dir = path.dirname(imageFile('TargetA_Lum.xisf'));
+  imageFile('TargetA_Red.xisf');
   fs.writeFileSync(path.join(dir, 'notes.txt'), '');
-  const out = await byName.open_image.handler(apiFrom(ctx), { file_path: path.join(dir, 'IC410_Lum L.xisf') });
+  const out = await byName.open_image.handler(apiFrom(ctx), { file_path: path.join(dir, 'TargetA_Lum L.xisf') });
   assert.equal(out.isError, true);
-  assert.match(out.text, /^File not found: .*IC410_Lum L\.xisf\. Image files in .*: .*IC410_Lum\.xisf, IC410_Red\.xisf/);
+  assert.match(out.text, /^File not found: .*TargetA_Lum L\.xisf\. Image files in .*: .*TargetA_Lum\.xisf, TargetA_Red\.xisf/);
   assert.doesNotMatch(out.text, /notes\.txt/);
   assert.equal(emitted.length, 0);
 });
 
 test('open_image refuses a relative path without calling PixInsight', async () => {
   const { ctx, emitted } = createFakeBridge();
-  const out = await byName.open_image.handler(apiFrom(ctx), { file_path: 'IC410_Lum.xisf' });
+  const out = await byName.open_image.handler(apiFrom(ctx), { file_path: 'TargetA_Lum.xisf' });
   assert.equal(out.isError, true);
   assert.match(out.text, /absolute path/);
   assert.equal(emitted.length, 0);
