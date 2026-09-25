@@ -2,6 +2,12 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.2.3
+
+- `QUICKSTART.md`: from a new computer to a processed LRGB image. What to install, copyable prompts to install
+  the connector and skills and to start processing, the target folder before and after, what a run costs, how to
+  build your own skill repository and how to report issues. The README links to it. No code change.
+
 ## 2.2.2
 
 - `clone_image` keeps the source's FITS keywords, astrometric solution and view properties in the clone, as

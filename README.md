@@ -1,7 +1,7 @@
 # PixInsight Connector
 
 An MCP connector that lets any AI agent operate [PixInsight](https://pixinsight.com): about 80 PixInsight
-operations as tools, for chat sessions and the skills that guide them.
+operations as tools, for chat sessions and the skills that guide them. **New here? Start with the [Quick start](QUICKSTART.md).**
 
 > Community project, not affiliated with or endorsed by Pleiades Astrophoto. PixInsight® is a registered
 > trademark of Pleiades Astrophoto S.L.
