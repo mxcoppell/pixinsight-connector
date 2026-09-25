@@ -2,6 +2,12 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.2.2
+
+- `clone_image` keeps the source's FITS keywords, astrometric solution and view properties in the clone, as
+  `export_image` does since 2.2.1. A clone used to hold only the pixels, so it could not stand in for a
+  plate-solved or flux-calibrated image.
+
 ## 2.2.1
 
 - `describe_process` and `run_process` check that the name is a PixInsight process before instantiating it.

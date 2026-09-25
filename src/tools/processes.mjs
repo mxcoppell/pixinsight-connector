@@ -418,7 +418,7 @@ function marsFilesFromSettings(api) {
 }
 
 // The names a grouped curve name stands for: "Sony IMX411/455/461/533/571" -> "Sony IMX411",
-// "Sony IMX455", ... A token is a group when the parts after its first slash start with a digit;
+// "Sony IMX533", ... A token is a group when the parts after its first slash start with a digit;
 // they take the first part's leading non-digit prefix ("IMX"). A slash between words
 // ("Canon Full Spectrum B / Antlia ALP-T") is not a group. Lowercased.
 function groupedNames(name) {
@@ -438,7 +438,7 @@ function groupedNames(name) {
 const findFilters = {
   name: 'find_filters',
   description: "Search PixInsight's built-in filter and camera QE database by name (case-insensitive substring). " +
-    'A grouped name also matches each name it stands for ("Sony IMX411/455/461/533/571" matches "IMX455"); results are ordered exact name, then substring, then grouped-name matches. ' +
+    'A grouped name also matches each name it stands for ("Sony IMX411/455/461/533/571" matches "IMX533"); results are ordered exact name, then substring, then grouped-name matches. ' +
     'Use it to pick exact names for run_spfc or run_spcc. Sensor QE curves have channel Q.',
   inputSchema: {
     type: 'object',

@@ -262,7 +262,7 @@ test('launched in X, find_filters then set_workspace(T): X gets nothing; T\'s lo
   const s = await serveLogged(t);
   const target = path.join(s.root, 'IC 434');
   fs.mkdirSync(target);
-  const found = await s.call('find_filters', { query: 'IMX455' });
+  const found = await s.call('find_filters', { query: 'IMX533' });
   assert.notEqual(found.isError, true, found.content[0].text);
   assert.match(found.content[0].text, /Sony IMX411\/455\/461\/533\/571/);
   const other = await s.call('reads_platform');
