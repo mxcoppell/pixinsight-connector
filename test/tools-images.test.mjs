@@ -105,6 +105,16 @@ test('export_image resolves a relative file_path under <workspace>/output and cr
   assert.ok(out.text.includes(target), out.text);
 });
 
+test('export_image carries keywords, the astrometric solution and view properties into the saved copy', async (t) => {
+  const ws = tempWorkspace(t);
+  const { ctx, emitted } = createFakeBridge({ replies: ['10'] });
+  await byName.export_image.handler(apiFrom(ctx, { workspace: ws.workspace }), { view_id: 'RGB', file_path: 'stage.xisf' });
+  const js = emitted[0], save = js.indexOf('c.saveAs(');
+  for (const step of ['c.keywords = __w.keywords', 'c.copyAstrometricSolution(__w)', 'c.mainView.setPropertyValue(']) {
+    assert.ok(js.indexOf(step) > 0 && js.indexOf(step) < save, `${step} before saveAs`);
+  }
+});
+
 test('export_image accepts an absolute path inside <workspace>/output or the state folder', async (t) => {
   const ws = tempWorkspace(t);
   for (const target of [path.join(ws.outputDir, 'a.png'), path.join(ws.stateDir, 'scratch', 'b.png')]) {

@@ -43,6 +43,15 @@ function guard(body) {
 } catch (e) { throw new Error(e && e.message ? e.message : String(e)); } })()`;
 }
 
+// A name that is not a process (undeclared, or a non-process global such as CheckBox) otherwise
+// surfaces as PixInsight's bare "X is not defined". Same classification as list_processes, and it
+// never instantiates the global.
+function unknownProcessCheck(name) {
+  return `if (typeof ${name} !== 'function' || !(${name}.prototype instanceof ProcessInstance)) ` +
+    `throw new Error('No PixInsight process named ${name}. The name is a PJSR process constructor name; ` +
+    `list_processes lists the ones installed.');`;
+}
+
 function parseJsonResult(r, what) {
   if (r.status === 'error') throw new Error(r.error?.message || JSON.stringify(r.error));
   const raw = r.outputs?.consoleOutput ?? r.result ?? '';
@@ -89,6 +98,7 @@ export async function listProcesses(api) {
 export async function describeProcess(api, name) {
   validateIdentifier(name, 'process name');
   const body = `
+    ${unknownProcessCheck(name)}
     var P = new ${name};
     var keys = Object.keys(P);
     var parameters = [];
