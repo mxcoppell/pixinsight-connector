@@ -2,6 +2,19 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.2.0
+
+- New tool `inspect_environment`: reports what the PixInsight installation has by asking PixInsight. Gaia answers
+  `get-info` for DR2, EDR3, DR3 and DR3/SP (valid, files, magnitude range, mean spectra), plus a 0.1-degree search.
+  Each configured MARS file is tested with one MultiscaleGradientCorrection run on a temporary synthetic
+  plate-solved image: readable, missing or corrupt, and how many MARS reference images cover a given position.
+  BlurXTerminator, NoiseXTerminator and StarXTerminator run once on a 64x64 image to report their version, ML
+  model version and gpu/cpu. Also free memory and free space on the workspace volume. Temporary images are closed.
+- `doctor` and `install` name the companion skills repository, `mxcoppell/pixinsight-connector-skills`.
+- A Gaia release with no database files reports `valid: false`; a console error PixInsight prints during the
+  query (`No database files have been selected`, seen on the first query of a session) is reported in that
+  release's `error` instead of failing the call.
+
 ## 2.1.3
 
 - `run_pjsr` and every other tool report what a failing script actually threw. PixInsight's own methods and process

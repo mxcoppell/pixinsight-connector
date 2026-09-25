@@ -87,7 +87,7 @@ function xisf(body) {
   return Buffer.concat([head, x]);
 }
 const kw = (name, value) => `<FITSKeyword name="${name}" value="${value}" comment=""/>`;
-const image = (inner) => `<Image geometry="4814:3213:1" sampleFormat="Float32" colorSpace="Gray" location="attachment:4096:61873728">${inner}</Image>`;
+const image = (inner) => `<Image geometry="4000:3000:1" sampleFormat="Float32" colorSpace="Gray" location="attachment:4096:61873728">${inner}</Image>`;
 // What an Astro Pixel Processor master carries: a processing history naming inheritAstrometricSolution, no solution.
 const HISTORY = '<Property id="PixInsight:ProcessingHistory" type="String">&lt;?xml version="1.0"?&gt;&lt;parameter id="inheritAstrometricSolution" value="true"/&gt; CRVAL1 AstrometricSolution</Property>';
 // A FITS file: 80-character cards padded to 2880 bytes.
@@ -113,13 +113,13 @@ test('hasWCS: a processing history that only names an astrometric parameter is n
 });
 
 test('hasWCS: WCS keywords (CTYPE, CRVAL and a CD/CDELT/PC matrix) are a solution; a lone CRVAL1 is not', async (t) => {
-  const wcs = kw('CTYPE1', "'RA---TAN'") + kw('CTYPE2', "'DEC--TAN'") + kw('CRVAL1', '80.6') + kw('CRVAL2', '33.4');
+  const wcs = kw('CTYPE1', "'RA---TAN'") + kw('CTYPE2', "'DEC--TAN'") + kw('CRVAL1', '150.1') + kw('CRVAL2', '20.2');
   const f = await scanFiles(t, {
     'cd.xisf': xisf(image(wcs + kw('CD1_1', '-4.2E-4') + kw('CD1_2', '0') + kw('CD2_1', '0') + kw('CD2_2', '4.2E-4'))),
     'cdelt.xisf': xisf(image(wcs + kw('CDELT1', '-4.2E-4') + kw('CDELT2', '4.2E-4'))),
     'pc.xisf': xisf(image(wcs + kw('PC1_1', '1') + kw('PC2_2', '1') + kw('CDELT1', '-4.2E-4') + kw('CDELT2', '4.2E-4'))),
     'nomatrix.xisf': xisf(image(wcs)),
-    'crval.xisf': xisf(image(kw('CRVAL1', '80.6'))),
+    'crval.xisf': xisf(image(kw('CRVAL1', '150.1'))),
   });
   assert.deepEqual(Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.hasWCS])),
     { 'cd.xisf': true, 'cdelt.xisf': true, 'pc.xisf': true, 'nomatrix.xisf': false, 'crval.xisf': false });
@@ -150,38 +150,38 @@ test('hasWCS: one or two of the three solution properties are not a solution', a
 });
 
 test('XISF: a keyword or property inside a comment or CDATA section is not read', async (t) => {
-  const wcs = kw('CTYPE1', "'RA---TAN'") + kw('CTYPE2', "'DEC--TAN'") + kw('CRVAL1', '80.6') + kw('CRVAL2', '33.4') + kw('CD1_1', '-4.2E-4');
+  const wcs = kw('CTYPE1', "'RA---TAN'") + kw('CTYPE2', "'DEC--TAN'") + kw('CRVAL1', '150.1') + kw('CRVAL2', '20.2') + kw('CD1_1', '-4.2E-4');
   const props = ['ProjectionSystem', 'ReferenceCelestialCoordinates', 'LinearTransformationMatrix'].map((n) => `<Property id="PCL:AstrometricSolution:${n}" type="String" value="x"/>`).join('');
   const f = await scanFiles(t, {
     'comment.xisf': xisf(image(`<!-- ${kw('FILTER', "'Red'")} ${wcs} ${props} -->` + kw('FILTER', "'Green'"))),
-    'cdata.xisf': xisf(image(`<Property id="Note" type="String"><![CDATA[${kw('OBJECT', "'Fake'")}${wcs}${props}]]></Property>` + kw('OBJECT', "'IC 410'"))),
+    'cdata.xisf': xisf(image(`<Property id="Note" type="String"><![CDATA[${kw('OBJECT', "'Fake'")}${wcs}${props}]]></Property>` + kw('OBJECT', "'Target A'"))),
   });
   assert.equal(f['comment.xisf'].filter, 'Green');
   assert.equal(f['comment.xisf'].hasWCS, false);
-  assert.equal(f['cdata.xisf'].object, 'IC 410');
+  assert.equal(f['cdata.xisf'].object, 'Target A');
   assert.equal(f['cdata.xisf'].hasWCS, false);
 });
 
 test('FITS: a card without the "= " value indicator is commentary, never a value', async (t) => {
   const f = await scanFiles(t, {
     'commentary.fits': fits([card('SIMPLE', 'T'), card('BITPIX', '-32'), card('NAXIS', '0'),
-      "OBJECT  was M42, reframed", "FILTER  'Red'", card('OBJECT', "'IC 410'"), card('FILTER', "'Ha'")]),
+      "OBJECT  was M42, reframed", "FILTER  'Red'", card('OBJECT', "'Target A'"), card('FILTER', "'Ha'")]),
   });
-  assert.equal(f['commentary.fits'].object, 'IC 410');
+  assert.equal(f['commentary.fits'].object, 'Target A');
   assert.equal(f['commentary.fits'].filter, 'Ha');
 });
 
 test('scan_workspace reports INSTRUME, TELESCOP, FOCALLEN, XPIXSZ, YPIXSZ and XBINNING verbatim (quotes stripped), else null', async (t) => {
   const f = await scanFiles(t, {
-    'full.xisf': xisf(image(kw('INSTRUME', "'ZWO ASI6200MM Pro'") + kw('TELESCOP', "'&lt;RC8&gt; &amp; reducer'") + kw('FOCALLEN', '1100.') +
+    'full.xisf': xisf(image(kw('INSTRUME', "'Example Mono Camera'") + kw('TELESCOP', "'&lt;RC8&gt; &amp; reducer'") + kw('FOCALLEN', '1100.') +
       kw('XPIXSZ', '3.76') + kw('YPIXSZ', '3.76') + kw('XBINNING', '1'))),
     'bare.xisf': xisf(image(kw('FILTER', "'Red'"))),
     'frame.fits': fits([card('SIMPLE', 'T'), card('BITPIX', '-32'), card('NAXIS', '0'), card('INSTRUME', "'QHY600M '"), card('FILTER', "'Ha'"),
-      card('XPIXSZ', '3.76'), card('CTYPE1', "'RA---TAN'"), card('CTYPE2', "'DEC--TAN'"), card('CRVAL1', '80.6'), card('CRVAL2', '33.4'), card('CDELT1', '-4.2E-4'), card('CDELT2', '4.2E-4')]),
+      card('XPIXSZ', '3.76'), card('CTYPE1', "'RA---TAN'"), card('CTYPE2', "'DEC--TAN'"), card('CRVAL1', '150.1'), card('CRVAL2', '20.2'), card('CDELT1', '-4.2E-4'), card('CDELT2', '4.2E-4')]),
   });
-  assert.deepEqual(f['full.xisf'].keywords, { INSTRUME: 'ZWO ASI6200MM Pro', TELESCOP: '<RC8> & reducer', FOCALLEN: '1100.', XPIXSZ: '3.76', YPIXSZ: '3.76', XBINNING: '1' });
+  assert.deepEqual(f['full.xisf'].keywords, { INSTRUME: 'Example Mono Camera', TELESCOP: '<RC8> & reducer', FOCALLEN: '1100.', XPIXSZ: '3.76', YPIXSZ: '3.76', XBINNING: '1' });
   assert.deepEqual(f['bare.xisf'].keywords, { INSTRUME: null, TELESCOP: null, FOCALLEN: null, XPIXSZ: null, YPIXSZ: null, XBINNING: null });
-  assert.equal(f['full.xisf'].geometry, '4814:3213:1');
+  assert.equal(f['full.xisf'].geometry, '4000:3000:1');
   assert.equal(f['full.xisf'].colorSpace, 'Gray');
   assert.deepEqual(f['frame.fits'].keywords, { INSTRUME: 'QHY600M', TELESCOP: null, FOCALLEN: null, XPIXSZ: '3.76', YPIXSZ: null, XBINNING: null });
   assert.equal(f['frame.fits'].filter, 'Ha');

@@ -44,7 +44,7 @@ test('readXisfHeader parses geometry, colorSpace, FILTER and hasWCS from a minim
   const dir = mkdtempSync(path.join(tmpdir(), 'pixinsight-connector-ws-'));
   try {
     const file = path.join(dir, 'synthetic.xisf');
-    const xml = '<Image geometry="1920:1080:1" colorSpace="Gray"><FITSKeyword name="FILTER" value="Ha" /><FITSKeyword name="OBJECT" value="IC 410" /><FITSKeyword name="EXPTIME" value="300" /></Image>';
+    const xml = '<Image geometry="1920:1080:1" colorSpace="Gray"><FITSKeyword name="FILTER" value="Ha" /><FITSKeyword name="OBJECT" value="Target A" /><FITSKeyword name="EXPTIME" value="300" /></Image>';
     const xmlBuf = Buffer.from(xml, 'utf8');
     const header = Buffer.alloc(16);
     header.write('XISF0100', 0, 'latin1');
@@ -58,7 +58,7 @@ test('readXisfHeader parses geometry, colorSpace, FILTER and hasWCS from a minim
     assert.equal(parsed.geometry, '1920:1080:1');
     assert.equal(parsed.colorSpace, 'Gray');
     assert.equal(parsed.filter, 'Ha');
-    assert.equal(parsed.object, 'IC 410');
+    assert.equal(parsed.object, 'Target A');
     assert.equal(parsed.exposureS, 300);
     assert.equal(parsed.hasWCS, false);
   } finally {

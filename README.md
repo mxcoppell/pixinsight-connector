@@ -79,7 +79,7 @@ folder the harness started in. The connector writes only `<target>/agentic/` (sc
 
 - **Tools:** 78, grouped as images, processes, channels, tone, detail, masks, stars, narrowband, astrometry,
   measurement, preview, PJSR execution, introspection and session. Full list: [docs/tools.md](docs/tools.md).
-- **Skills** hold the technique. Have one that works? Add it to [COMMUNITY.md](COMMUNITY.md) in a one-line PR.
+- **Skills** hold the technique. Companion skills (environment preflight, dataset intake, a basic LRGB flow): [pixinsight-connector-skills](https://github.com/mxcoppell/pixinsight-connector-skills). Have one that works? Add it to [COMMUNITY.md](COMMUNITY.md).
 - **Packs** are ES modules that add or replace tools at startup, listed in `PIXINSIGHT_CONNECTOR_PACKS`. A pack is
   arbitrary code running with your privileges; only packs you configure load. See
   [CONTRIBUTING.md](CONTRIBUTING.md#developing-a-pack).

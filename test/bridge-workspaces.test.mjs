@@ -357,7 +357,7 @@ test('two targets cold-starting at the same moment start PixInsight once (the la
 
 test('two machines sharing one target (network storage): each machine\'s watcher sees only its own machine\'s subdir', async (t) => {
   const h = await tmpRoot(t);
-  const target = path.join(h.root, 'nas', 'IC410 target');
+  const target = path.join(h.root, 'nas', 'deep sky target');
   fs.mkdirSync(target, { recursive: true });
   // A machine: the real server wiring (buildRuntimeApi picks the bridge dir from the machine id) and
   // a real bridge. Only this machine's own pid is alive as far as it can tell.
@@ -473,7 +473,7 @@ test('the exit hook drops this process\'s queued, unclaimed commands (and only t
 // the watcher wrote back.
 test('the call log records a real call: the exact PJSR the watcher ran and the result it wrote, on the call\'s seq', async (t) => {
   const h = await tmpRoot(t);
-  const dir = path.join(h.root, 'IC 410');
+  const dir = path.join(h.root, 'Target A');
   fs.mkdirSync(dir);
   const workspace = createWorkspace({ cwd: dir, env: {}, homeDir: path.join(h.root, 'home'), platform: process.platform });
   const callLog = createCallLog({ workspace, env: {}, log: () => {}, onExit: () => {}, sessionInfo: () => ({ connectorVersion: '0.0.0-test' }) });

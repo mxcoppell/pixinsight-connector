@@ -78,7 +78,7 @@ async function serveLogged(t, { env = {}, unusable = false, fs: logFs, packTools
   const root = tmpRoot(t);
   const home = path.join(root, 'home');
   fs.mkdirSync(home);
-  const dir = unusable ? home : path.join(root, 'IC 410');
+  const dir = unusable ? home : path.join(root, 'Target A');
   fs.mkdirSync(dir, { recursive: true });
   const workspace = createWorkspace({ cwd: dir, env, homeDir: home, platform: process.platform });
   const warnings = [];
@@ -233,7 +233,7 @@ test('set_workspace: the old file closes with a log switch; set_workspace opens 
   assert.equal(recs[5].dir, path.join(next, 'agentic', 'bridge', 'mac-a'), 'the bridge moved with it');
 });
 
-// The IC410 run: a server launched in one folder whose first call is set_workspace wrote a log (and
+// A real run: a server launched in one folder whose first call is set_workspace wrote a log (and
 // created agentic/) in the launch folder. Nothing may appear there.
 test('launched in X, set_workspace(T) first: X gets nothing; T\'s log starts with session, then set_workspace', async (t) => {
   const s = await serveLogged(t);
@@ -255,7 +255,7 @@ test('launched in X, set_workspace(T) first: X gets nothing; T\'s log starts wit
   assert.deepEqual(recs[6].result, sw);
 });
 
-// The IC410 symptom through another first call: a skill looking up the camera's QE curve before it
+// The same symptom through another first call: a skill looking up the camera's QE curve before it
 // names the workspace. Which calls may run before set_workspace is not a list: a call's log goes where
 // the workspace is when the call first uses it (api.workspace, the bridge), and one that never does waits.
 test('launched in X, find_filters then set_workspace(T): X gets nothing; T\'s log has both, in order', async (t) => {
@@ -329,7 +329,7 @@ test('an unusable workspace: calls are answered, nothing is written anywhere, wo
 // own times, into the first file that opens -- which the fixing set_workspace itself opens.
 test('the set_workspace that fixes an unusable start opens the first log file and is in it, after the calls before it', async (t) => {
   const s = await serveLogged(t, { unusable: true });
-  const target = path.join(s.root, 'IC 410');
+  const target = path.join(s.root, 'Target A');
   fs.mkdirSync(target);
   const refused = await s.call('two_cmds');
   const wrong = await s.call('set_workspace', { path: path.join(s.root, 'missing') });

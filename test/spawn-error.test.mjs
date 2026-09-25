@@ -142,7 +142,7 @@ test('autostart: a spawn that emits error fails the send as a crash naming the p
 test('through the server: PIXINSIGHT_BIN missing while PixInsight runs gives an isError result naming it, logged as an event', async (t) => {
   const root = tmpRoot(t);
   const home = path.join(root, 'home');
-  const dir = path.join(root, 'IC 410');
+  const dir = path.join(root, 'Target A');
   fs.mkdirSync(home);
   fs.mkdirSync(dir);
   const piBin = path.join(root, 'missing', 'PixInsight');

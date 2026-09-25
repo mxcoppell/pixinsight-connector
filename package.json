@@ -1,6 +1,6 @@
 {
   "name": "pixinsight-connector",
-  "version": "2.1.3",
+  "version": "2.2.0",
   "mcpName": "io.github.mxcoppell/pixinsight-connector",
   "description": "MCP connector that lets any AI agent operate PixInsight: a toolbox of PixInsight operations, extensible with runtime tool packs",
   "type": "module",

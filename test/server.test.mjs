@@ -968,7 +968,7 @@ function plateSolveDispatch(catalog, reply, consoleLines) {
   const api = apiFrom(ctx, { listImages: async () => [{ id: 'L' }] });
   return captureDispatch(catalog, api, () => consoleLines);
 }
-const solveArgs = { view_id: 'L', ra_deg: 80.58, dec_deg: 33.42, pixel_scale: 1.542 };
+const solveArgs = { view_id: 'L', ra_deg: 150.1, dec_deg: 20.2, pixel_scale: 1.5 };
 
 test('a successful plate solve is not promoted to an error by ImageSolver\'s benign "No database files" console line', async () => {
   const catalog = await catalogWithResumeBridge();
