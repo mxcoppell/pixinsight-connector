@@ -2,6 +2,16 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.2.1
+
+- `describe_process` and `run_process` check that the name is a PixInsight process before instantiating it.
+  An abbreviation or any other name that is not a process constructor (`SPCC`, `CheckBox`) now fails with
+  `No PixInsight process named SPCC. The name is a PJSR process constructor name; list_processes lists the ones
+  installed.` instead of PixInsight's bare `SPCC is not defined`. Real process names run exactly as before.
+- `export_image` keeps the image's FITS keywords, astrometric solution and view properties (for example SPFC's flux
+  calibration) in the file. It used to save a bare pixel copy, so an exported stage file could not be plate-solved
+  again from its own metadata or feed `copy_astrometric_solution`.
+
 ## 2.2.0
 
 - New tool `inspect_environment`: reports what the PixInsight installation has by asking PixInsight. Gaia answers

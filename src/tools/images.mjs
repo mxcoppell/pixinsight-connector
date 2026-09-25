@@ -292,7 +292,7 @@ export function resolveExportPath(filePath, { outputDir, stateDir }, platform = 
 
 const exportImage = {
   name: 'export_image',
-  description: 'Write an image to a file in the workspace\'s output or state folder. A relative file_path is resolved under <workspace>/output; an absolute one must lie inside <workspace>/output or the state folder (<workspace>/agentic by default), and a path anywhere else is refused. Format comes from the extension: .tif/.tiff, .png, .jpg/.jpeg, .xisf, .fits. TIFF and PNG default to 16-bit, JPEG to 8-bit; use 32 for float. The working image is not changed. Missing parent folders are created.',
+  description: 'Write an image to a file in the workspace\'s output or state folder. A relative file_path is resolved under <workspace>/output; an absolute one must lie inside <workspace>/output or the state folder (<workspace>/agentic by default), and a path anywhere else is refused. Format comes from the extension: .tif/.tiff, .png, .jpg/.jpeg, .xisf, .fits. TIFF and PNG default to 16-bit, JPEG to 8-bit; use 32 for float. The file keeps the image\'s FITS keywords, astrometric solution and view properties (formats that cannot store them drop them). The working image is not changed. Missing parent folders are created.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -325,6 +325,16 @@ const exportImage = {
       var c = new ImageWindow(src.width, src.height, src.numberOfChannels, 32, true, src.isColor, 'export_tmp');
       try {
         c.mainView.beginProcess(); c.mainView.image.assign(src); c.mainView.endProcess();
+        // The copy is a new window: carry over what the file should describe, not just the pixels.
+        c.keywords = __w.keywords;
+        if (__w.hasAstrometricSolution) c.copyAstrometricSolution(__w);
+        var props = __w.mainView.properties;
+        for (var i = 0; i < props.length; ++i) {
+          try {
+            c.mainView.setPropertyValue(props[i], __w.mainView.propertyValue(props[i]));
+            c.mainView.setPropertyAttributes(props[i], __w.mainView.propertyAttributes(props[i]));
+          } catch (e) {}
+        }
         ${conv ? `var S = new SampleFormatConversion; S.format = ${conv}; S.executeOn(c.mainView);` : ''}
         if (File.exists(${q(toPixPath(file))})) File.remove(${q(toPixPath(file))});
         c.saveAs(${q(toPixPath(file))}, false, false, false, false);

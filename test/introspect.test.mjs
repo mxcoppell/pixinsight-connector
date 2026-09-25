@@ -125,10 +125,12 @@ test('the guard()-wrapped PJSR body actually returns its value when eval-ed as r
   // A minimal stand-in process: some function-valued own properties (like PJSR's own
   // "inherited-looking" instance methods), some real parameters, and a constructor with an own
   // numeric constant alongside the ever-present, non-constant `length`.
+  function ProcessInstance() {}
   function FakeProcess() {
     this.amount = 0.8;
     this.ownMethod = function () {};
   }
+  FakeProcess.prototype = Object.create(ProcessInstance.prototype);
   FakeProcess.prototype.processId = function () { return 'FakeProcess'; };
   FakeProcess.prototype.processCategory = function () { return 'Test'; };
   FakeProcess.prototype.canProcessViews = function () { return true; };
@@ -154,9 +156,60 @@ test('describe_process rejects a process name that is not a bare identifier, bef
 });
 
 test('describe_process surfaces a PJSR error (e.g. the name is not really a process) as a real Error', async () => {
-  const { ctx } = createFakeBridge({ replies: [{ status: 'error', error: { message: 'CheckBox is not a constructor' } }] });
-  await assert.rejects(() => describeProcess(apiFrom(ctx), 'CheckBox'), /CheckBox is not a constructor/);
+  const { ctx } = createFakeBridge({ replies: [{ status: 'error', error: { message: 'No PixInsight process named CheckBox. The name is a PJSR process constructor name; list_processes lists the ones installed.' } }] });
+  await assert.rejects(() => describeProcess(apiFrom(ctx), 'CheckBox'), /No PixInsight process named CheckBox/);
 });
+
+// The unknown-name check, eval-ed as real JS the way PixInsight evals it: an undeclared name, a
+// non-process global and a real process, for both tools that build `new <name>`.
+function evalWithGlobals(snippet, globals) {
+  const names = Object.keys(globals);
+  // eslint-disable-next-line no-new-func -- deliberately eval-ing generated PJSR with stand-in globals
+  return new Function(...names, `return eval(${JSON.stringify(snippet)});`)(...names.map((n) => globals[n]));
+}
+
+function processGlobals() {
+  function ProcessInstance() {}
+  function Real() { this.amount = 1; }
+  Real.prototype = Object.create(ProcessInstance.prototype);
+  Real.prototype.processId = () => 'Real';
+  Real.prototype.processCategory = () => 'Test';
+  Real.prototype.canProcessViews = () => true;
+  Real.prototype.canProcessGlobal = () => true;
+  Real.prototype.executeGlobal = () => true;
+  function CheckBox() {}
+  return { ProcessInstance, Real, CheckBox };
+}
+
+for (const [tool, emit] of [
+  ['describe_process', (api, n) => describeProcess(api, n)],
+  ['run_process', (api, n) => runProcess(api, n, {}, undefined)],
+]) {
+  test(`${tool} checks that the name is a process before instantiating it`, async () => {
+    const { ctx, emitted } = createFakeBridge({ replies: ['{}'] });
+    await emit(apiFrom(ctx), 'SPCC').catch(() => {});
+    const snippet = emitted[0];
+    assert.ok(snippet.indexOf('SPCC.prototype instanceof ProcessInstance') < snippet.indexOf('new SPCC'));
+    assert.throws(() => evalWithGlobals(snippet, processGlobals()),
+      /^Error: No PixInsight process named SPCC\. The name is a PJSR process constructor name; list_processes lists the ones installed\.$/);
+  });
+
+  test(`${tool} rejects a non-process global without instantiating it`, async () => {
+    const { ctx, emitted } = createFakeBridge({ replies: ['{}'] });
+    await emit(apiFrom(ctx), 'CheckBox').catch(() => {});
+    let built = false;
+    const g = processGlobals();
+    g.CheckBox = function CheckBox() { built = true; };
+    assert.throws(() => evalWithGlobals(emitted[0], g), /No PixInsight process named CheckBox/);
+    assert.equal(built, false);
+  });
+
+  test(`${tool} runs a real process exactly as before`, async () => {
+    const { ctx, emitted } = createFakeBridge({ replies: ['{}'] });
+    await emit(apiFrom(ctx), 'Real').catch(() => {});
+    assert.doesNotThrow(() => evalWithGlobals(emitted[0], processGlobals()));
+  });
+}
 
 // --- run_process ---
 
