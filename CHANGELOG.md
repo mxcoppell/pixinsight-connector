@@ -14,7 +14,7 @@ Each release's full notes are on its [GitHub release](https://github.com/mxcoppe
 **Bridge and jobs.**
 - A "busy" heartbeat left by a PixInsight that was killed, restarted, or whose command finished is cleared on the next call, and PixInsight and the watcher start again. It used to block every call until the file was removed by hand. `doctor` reports the heartbeat.
 - A watcher launch into a PixInsight the connector just started is sent again if it does not come up within 10 s.
-- `run_pjsr` and `run_pjsr_file` take `async`: the code runs as a job, `job_status` reports its progress and result, and `cancel_job` stops it at its next `processEvents()`. Scripts can call `mcpProgress(text)` and `mcpCancelRequested()`.
+- `run_pjsr` and `run_pjsr_file` take `async`: the code runs as a job, `job_status` reports its state (queued, running, ending, done, failed, cancelled, stopped), progress and result, and `cancel_job` stops it at its next `processEvents()`. Scripts can call `mcpProgress(text)` and `mcpCancelRequested()`.
 - Calls that use PixInsight are refused while a job runs, or while a `run_wbpp` run is alive in the workspace.
 - A call that shows no progress for 90 s (`PIXINSIGHT_CONNECTOR_DIALOG_HINT_MS`) says PixInsight may be showing a dialog.
 
@@ -28,7 +28,7 @@ Each release's full notes are on its [GitHub release](https://github.com/mxcoppe
 - `run_wbpp` / `wbpp_status`: headless WBPP in a separate PixInsight instance, passing only the given parameters. Dark optimization and drizzle go through a pipeline-builder script.
 
 **Other changes.**
-- `run_plate_solve` retries with wider scale seeds and reports solved scale ÷ expected scale. An image that already has a solution is now really re-solved.
+- `run_plate_solve` retries with wider scale seeds and reports solved scale ÷ expected scale (the failed seeds' console errors do not flag a solve that succeeded). An image that already has a solution is now really re-solved.
 - `docs/troubleshooting.md` covers stale heartbeats, jobs and cancel limits, hidden dialogs, plate-solution loss, `saveAs` error boxes, StarAlignment batching and matrix mode, Gaia, WBPP, and PJSR pitfalls.
 
 ## 2.2.3
