@@ -980,6 +980,16 @@ test('a successful plate solve is not promoted to an error by ImageSolver\'s ben
   assert.ok(result.content.some((c) => c.text.includes(NO_DB_LINE)), 'the console line is still reported, just not promoted');
 });
 
+test('a plate solve that succeeded at a wider scale seed is not promoted to an error by the failed seeds\' console lines', async () => {
+  const catalog = await catalogWithResumeBridge();
+  const retried = '@@SOLVE@@' + JSON.stringify({ solved: true, seconds: 25, summary: ['Control points: 745'], attempts: [{ seedScale: 0.78, solved: false }, { seedScale: 0.39, solved: false }, { seedScale: 1.55, solved: true }] });
+  const lines = ['*** Error: The image could not be aligned with the reference star field.', GAIA_WARNING, '*** Error: Unable to find an initial linear transformation.'];
+  const dispatch = plateSolveDispatch(catalog, retried, lines);
+  const result = await dispatch({ params: { name: 'run_plate_solve', arguments: solveArgs } }, { sendNotification: async () => {} });
+  assert.notEqual(result.isError, true);
+  assert.match(result.content[0].text, /Plate solve OK/);
+});
+
 test('a plate solve that failed is still an error, benign line or not', async () => {
   const catalog = await catalogWithResumeBridge();
   const failed = '@@SOLVE@@' + JSON.stringify({ solved: false, error: 'no solution' });

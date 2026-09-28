@@ -150,6 +150,12 @@ test('run_pjsr with async starts a job and returns at once; other PixInsight cal
     assert.match(c.text, /stops at its next processEvents\(\) call/);
     assert.deepEqual(s.bridge.cancels, ['cmd-1']);
 
+    // The script has stopped in PixInsight (heartbeat idle) but its result is not collected yet.
+    s.bridge.beat = { state: 'idle', ts: Date.now(), ageMs: 10 };
+    const ending = JSON.parse((await s.call('job_status', { job_id: id })).text);
+    assert.equal(ending.state, 'ending');
+    assert.equal(ending.cancel_requested, true);
+
     s.bridge.gate.resolve({ status: 'error', error: { message: 'Script error: MCP_CANCELLED: the command was cancelled (cancel_job)' }, outputs: {} });
     await delay(5);
     const after = JSON.parse((await s.call('job_status', { job_id: id })).text);

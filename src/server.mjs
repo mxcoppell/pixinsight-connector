@@ -154,7 +154,12 @@ function unknownArguments(definition, args) {
 //   XPSD server the tool actually solves against, and on a machine with no Gaia database files
 //   selected for that process PixInsight prints this line although the solve succeeds.
 const BENIGN_CONSOLE_ERRORS = {
-  run_plate_solve: [/^\*{3}\s*Error:\s*No database files have been selected/i],
+  run_plate_solve: [
+    /^\*{3}\s*Error:\s*No database files have been selected/i,
+    // Left by a scale seed that failed before a later seed solved (the result names the seed that solved).
+    /^\*{3}\s*Error:\s*The image could not be aligned with the reference star field/i,
+    /^\*{3}\s*Error:\s*Unable to find an initial linear transformation/i,
+  ],
 };
 
 // The instructions' workspace sentence: the workspace and the two folders session output goes to (the
@@ -619,7 +624,10 @@ async function jobReport(control, job) {
     try { st = await control.status(job.cmdId); } catch { st = null; }
     const hb = st?.heartbeat;
     const mine = hb?.state === 'busy' && hb.cmdId && hb.cmdId === job.cmdId;
-    out.state = mine ? 'running' : 'queued';
+    // A job PixInsight already ran and that is no longer in the heartbeat has stopped there, but its
+    // result is not collected yet: 'ending', not 'queued' (which read as if it had never started).
+    if (mine || job.cmdSeenRunning) job.cmdSeenRunning = true;
+    out.state = mine ? 'running' : (job.cmdSeenRunning || (job.cmdId && hb?.state === 'idle')) ? 'ending' : 'queued';
     if (job.cancelRequested) out.cancel_requested = true;
     if (mine) out.last_sign_of_progress_s = secsOf(hb.ageMs);
     if (st?.progress) out.progress = { text: st.progress.text, age_s: st.progress.at ? secsOf(now - st.progress.at) : null };
@@ -637,7 +645,7 @@ export function jobStatusTool(control) {
   return {
     name: 'job_status',
     description:
-      'Report on a job started by run_pjsr or run_pjsr_file with `async`: its state (queued, running, done, failed, cancelled, stopped), ' +
+      'Report on a job started by run_pjsr or run_pjsr_file with `async`: its state (queued, running, ending = stopped in PixInsight with its result not yet collected, done, failed, cancelled, stopped), ' +
       'elapsed time, seconds since the running script last called processEvents(), its latest mcpProgress() text, and, once it has ended, ' +
       'its result or error and PixInsight console errors. Without job_id: the running job, else the most recent one. Read-only; ' +
       'it does not use PixInsight, so it answers while a job runs.',

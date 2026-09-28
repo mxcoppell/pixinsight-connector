@@ -95,6 +95,6 @@ shows what loaded.
 | `set_workspace` | Server | Set the workspace folder this session's files go under (scratch files, the bridge, call logs) |
 | `resume_bridge` | Server | Allow PixInsight commands again after the user pressed Pause/Abort |
 | `list_packs` | Server | List the runtime tool packs discovered at server startup, with load status, tool counts, why any pack was skipped, and which core tools packs replaced |
-| `job_status` | Server | Report on a job started by run_pjsr or run_pjsr_file with `async`: its state (queued, running, done, failed, cancelled, stopped), elapsed time, seconds since the running script last called processEvents(), its latest mcpProgress() text, and, once it has ended, its result or error and PixInsight console errors |
+| `job_status` | Server | Report on a job started by run_pjsr or run_pjsr_file with `async`: its state (queued, running, ending = stopped in PixInsight with its result not yet collected, done, failed, cancelled, stopped), elapsed time, seconds since the running script last called processEvents(), its latest mcpProgress() text, and, once it has ended, its result or error and PixInsight console errors |
 | `cancel_job` | Server | Stop a job started by run_pjsr or run_pjsr_file with `async` |
 <!-- tools:end -->
