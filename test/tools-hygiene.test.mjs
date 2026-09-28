@@ -55,6 +55,9 @@ test('readXisfHeader lives once, in the module scan_workspace actually runs', as
 // export_image is (resolveExportPath); add it here only after checking which.
 const WRITE_SITE = /\bsaveAs\(|\bwriteFile(?:Sync)?\(|\bwriteText\w*\(|\boutputDirectory\s*=|\bmkdir(?:Sync)?\(|\brmSync\(|\bunlinkSync\(|\bcopyFile(?:Sync)?\(|\brename(?:Sync)?\(|\bcreateWriteStream\(|\bappendFile(?:Sync)?\(|\bFile\.(?:write|create|copy|move|remove)\w*\(/g;
 const EXPECTED_WRITE_SITES = {
+  'align.mjs': ['outputDirectory =', 'mkdirSync(', 'rmSync('], // align_files: resolveExportPath's folder, or scratchDir/align_files (matrix_only, removed)
+  'catalog.mjs': ['mkdirSync(', 'writeFileSync('], // catalog_stars: scratchDir/catalog
+  'wbpp.mjs': ['outputDirectory=', 'mkdirSync(', 'mkdirSync(', 'writeFileSync(', 'writeFileSync(', 'writeFileSync(', 'writeFileSync('], // run_wbpp: scratchDir/wbpp run records; WBPP writes resolveExportPath's folder
   'astrometry.mjs': ['File.createDirectory('], // run_plate_solve: scratchDir/tmp_platesolve (ImageSolver's star lists)
   'channels.mjs': ['mkdirSync(', 'File.remove(', 'saveAs(', 'outputDirectory ='], // align_to_reference: scratchDir/tmp_align
   'images.mjs': ['mkdirSync(', 'File.remove(', 'saveAs('], // export_image: resolveExportPath's file

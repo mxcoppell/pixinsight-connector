@@ -22,6 +22,7 @@ const EXCLUDED = new Set([
   'pixinsight_info', 'scan_workspace', // report the connector's own state; no PixInsight
   'list_open_images', // reads api.listImages, which this fake answers
   'find_filters', 'run_spfc', // read PixInsight's filter database from disk before any pjsr
+  'run_wbpp', 'wbpp_status', // start and report a separate PixInsight instance; no bridge command
 ]);
 
 const OPEN_VIEWS = ['V1', 'V2', 'V3', 'M1'];
@@ -52,6 +53,8 @@ function inputFor(def, dir) {
     measure_star_layer: { levels: [0.98] },
     multi_scale_enhance: { mask_clip_low: 0.06 }, // needs [0, 1)
     dynamic_narrowband_blend: { mask_clip: 0.04 }, // needs [0, 1)
+    resample_image: { factor: 2 }, // integer mode needs a whole factor >= 2
+    align_files: { reference_file: path.join(dir, 'image.xisf'), target_files: [path.join(dir, 'image.xisf')], matrix_only: true },
   }[def.name] ?? {};
   const input = {};
   for (const key of def.inputSchema.required ?? []) {
