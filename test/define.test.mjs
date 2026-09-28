@@ -93,3 +93,16 @@ test('the generated handler refuses a call missing a required param, before reac
   await assert.rejects(() => fit.handler(apiFrom(ctx), { view_id: 'L' }), /reference_id/);
   assert.equal(emitted.length, 0);
 });
+
+test('defineProcessTool sets noGUIMessages where the instance has it, unless a param sets it', async () => {
+  const tool = defineProcessTool({ name: 'run_x', process: 'Crop', target: 'view', description: 'Crop a view for this test only.',
+    params: { quiet: { type: 'boolean', pjsr: 'noGUIMessages', description: 'Console instead of dialogs.' } } });
+  const a = createFakeBridge({ replies: ['ok'] });
+  await tool.handler(apiFrom(a.ctx), { view_id: 'V' });
+  assert.match(a.emitted[0], /if \(P\.noGUIMessages !== undefined\) P\.noGUIMessages = true;/);
+  assert.ok(a.emitted[0].indexOf('noGUIMessages') < a.emitted[0].indexOf('__run(P, __w'), 'before the process runs');
+  const b = createFakeBridge({ replies: ['ok'] });
+  await tool.handler(apiFrom(b.ctx), { view_id: 'V', quiet: false });
+  assert.match(b.emitted[0], /P\.noGUIMessages = false;/);
+  assert.doesNotMatch(b.emitted[0], /P\.noGUIMessages = true/);
+});

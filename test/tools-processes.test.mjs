@@ -5,6 +5,10 @@ import { tools } from '../src/tools/processes.mjs';
 
 const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
 
+
+// The one assignment every generated process gets: noGUIMessages, only where the instance has it.
+const withoutNoGui = (js) => js.replace('if (P.noGUIMessages !== undefined) P.noGUIMessages = true;', '');
+
 test('processes.mjs exports the 15 process-wrapper tools', () => {
   assert.deepEqual(
     Object.keys(byName).sort(),
@@ -27,7 +31,7 @@ test('run_gradient_correction emits a bare GradientCorrection with no params', a
   const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
   await byName.run_gradient_correction.handler(apiFrom(ctx), { view_id: 'RGB' });
   assert.match(emitted[0], /new GradientCorrection/);
-  assert.doesNotMatch(emitted[0], /P\.\w+\s*=/, 'no parameter assignments beyond the process instantiation');
+  assert.doesNotMatch(withoutNoGui(emitted[0]), /P\.\w+\s*=/, 'no parameter assignments beyond the process instantiation');
 });
 
 test('run_background_neutralization emits BackgroundNeutralization with no params', async () => {
@@ -128,7 +132,7 @@ test('run_lhe needs only view_id; omitted values stay PixInsight defaults', asyn
   assert.deepEqual(byName.run_lhe.inputSchema.required, ['view_id']);
   const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
   const out = await byName.run_lhe.handler(apiFrom(ctx), { view_id: 'L' });
-  assert.doesNotMatch(emitted[0], /P\.\w+\s*=/);
+  assert.doesNotMatch(withoutNoGui(emitted[0]), /P\.\w+\s*=/);
   assert.match(out.text, /PixInsight's default parameters/);
   await assert.rejects(byName.run_lhe.handler(apiFrom(ctx), { view_id: 'L', histogram_resolution: 'Bit16' }), /Bit8, Bit10, Bit12/);
 });
@@ -269,4 +273,28 @@ test('find_filters: the exact name comes first, even when the database lists a s
 test('find_filters: a slash between two filter names is not a group to expand', async (t) => {
   assert.equal((await findFilters(t, { query: 'Canon Full Spectrum Antlia' })).count, 0);
   assert.equal((await findFilters(t, { query: 'Antlia ALP-T' })).count, 1);
+});
+
+test('run_mgc refuses a mono image without filter and sends nothing to PixInsight', async () => {
+  const { ctx, emitted } = createFakeBridge();
+  ctx.listImages = async () => [{ id: 'R', width: 10, height: 10, isColor: false }];
+  const api = apiFrom(ctx, { platform: { ...apiFrom(ctx).platform, settingsPath: '/does/not/exist.settings' } });
+  const out = await byName.run_mgc.handler(api, { view_id: 'R', mars_files: ['/tmp/fake.xmars'] });
+  assert.equal(out.isError, true);
+  assert.match(out.text, /R is a mono image and no filter was given/);
+  assert.equal(emitted.length, 0);
+});
+
+test('run_mgc runs a mono image with filter, and a colour image without one', async () => {
+  const mono = createFakeBridge({ replies: [JSON.stringify({ median: 0.1 }), 'ok', JSON.stringify({ median: 0.05 })] });
+  mono.ctx.listImages = async () => [{ id: 'R', width: 10, height: 10, isColor: false }];
+  const apiM = apiFrom(mono.ctx, { platform: { ...apiFrom(mono.ctx).platform, settingsPath: '/does/not/exist.settings' } });
+  const outM = await byName.run_mgc.handler(apiM, { view_id: 'R', filter: 'R', mars_files: ['/tmp/fake.xmars'] });
+  assert.notEqual(outM.isError, true, outM.text);
+  assert.match(mono.emitted[1], /P\.grayMARSFilter = /);
+  const col = createFakeBridge({ replies: [JSON.stringify({ median: 0.1 }), 'ok', JSON.stringify({ median: 0.05 })] });
+  col.ctx.listImages = async () => [{ id: 'RGB', width: 10, height: 10, isColor: true }];
+  const apiC = apiFrom(col.ctx, { platform: { ...apiFrom(col.ctx).platform, settingsPath: '/does/not/exist.settings' } });
+  const outC = await byName.run_mgc.handler(apiC, { view_id: 'RGB', mars_files: ['/tmp/fake.xmars'] });
+  assert.match(outC.text, /MGC done/);
 });

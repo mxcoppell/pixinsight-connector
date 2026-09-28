@@ -580,7 +580,7 @@ const runSpcc = {
 const runMgc = {
   name: 'run_mgc',
   description: 'Run MultiscaleGradientCorrection using the MARS reference database. The image must be plate-solved and linear; a mono image also needs the flux metadata run_spfc writes. ' +
-    `For a mono image pass filter (${bandNames}); for a color image leave it out (R, G, B bands are used). MARS files default to the ones configured in PixInsight.`,
+    `For a mono image pass filter (${bandNames}); a mono image without filter is refused, since MGC would then fit its model against a MARS band that is not the image's. For a color image leave it out (R, G, B bands are used). MARS files default to the ones configured in PixInsight.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -600,6 +600,12 @@ const runMgc = {
     if (!files.length) return { isError: true, text: 'MGC FAILED: no MARS database files configured. Pass mars_files, or set them in PixInsight (Process > Global > MARS).' };
     const band = input.filter ? BANDS[input.filter] : null;
     if (input.filter && !band) return { isError: true, text: `Unknown filter "${input.filter}". Use one of: ${bandNames}.` };
+    if (!input.filter) {
+      const img = (await api.listImages()).find((i) => i.id === input.view_id);
+      if (img && img.isColor === false) {
+        return { isError: true, text: `MGC not run: ${input.view_id} is a mono image and no filter was given. A mono image needs filter (${bandNames}): the MARS band MGC fits against.` };
+      }
+    }
     const before = await statsOrEmpty(api, input.view_id);
     await run(api, `${need(input.view_id)}
       var P = new ${PROC};

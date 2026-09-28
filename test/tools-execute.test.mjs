@@ -32,7 +32,10 @@ test('run_pixelmath emits the expression and truncation guard', async () => {
   const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
   await byName.run_pixelmath.handler(apiFrom(ctx), { view_id: 'RGB', expression: '$T*1.1' });
   assert.match(emitted[0], /P\.expression = "\$T\*1\.1"/);
-  assert.match(emitted[0], /P\.truncateUpper = 1/);
+  // PixelMath runs untruncated so the clipped samples can be counted; the image is then truncated to [0,1].
+  assert.match(emitted[0], /P\.truncate = false; P\.rescale = false;/);
+  assert.match(emitted[0], /v\.image\.truncate\(0, 1\)/);
+  assert.ok(emitted[0].indexOf('executeOn(__v)') < emitted[0].indexOf('__clipReport(__v)'));
 });
 
 test('run_pixelmath reports failure without throwing', async () => {
@@ -117,4 +120,46 @@ test('run_pjsr_file refuses a file that does not parse, naming the file and line
   const out = await byName.run_pjsr_file.handler(apiFrom(ctx), { path: f });
   assert.match(out.text, /Illegal return statement, step\.js line 2: "return x;"/);
   assert.equal(emitted.length, 0);
+});
+
+test('run_process sets noGUIMessages where the instance has it, unless params sets it', async () => {
+  const a = createFakeBridge({ replies: ['ok'] });
+  await byName.run_process.handler(apiFrom(a.ctx), { name: 'Resample', params: { xSize: 0.5 }, view_id: 'V' });
+  assert.match(a.emitted[0], /if \(P\.noGUIMessages !== undefined\) P\.noGUIMessages = true;/);
+  assert.ok(a.emitted[0].indexOf('P.xSize = 0.5;') < a.emitted[0].indexOf('noGUIMessages'), 'after the caller\'s params');
+  assert.ok(a.emitted[0].indexOf('noGUIMessages') < a.emitted[0].indexOf('__run(P, __w'), 'before the process runs');
+  const b = createFakeBridge({ replies: ['ok'] });
+  await byName.run_process.handler(apiFrom(b.ctx), { name: 'Crop', params: { noGUIMessages: false }, view_id: 'V' });
+  assert.match(b.emitted[0], /P\.noGUIMessages = false;/);
+  assert.doesNotMatch(b.emitted[0], /P\.noGUIMessages = true/);
+  const c = createFakeBridge({ replies: ['ok'] });
+  await byName.run_process.handler(apiFrom(c.ctx), { name: 'ImageIntegration' });
+  assert.match(c.emitted[0], /if \(P\.noGUIMessages !== undefined\) P\.noGUIMessages = true;/);
+});
+
+test('run_pixelmath reports the clipped fraction per channel, and says so when nothing was clipped', async () => {
+  const clipped = [{ below: 0, above: 0.034, min: 0, max: 3.1 }, { below: 0.0012, above: 0, min: -0.02, max: 0.9 }, { below: 0, above: 0, min: 0, max: 0.8 }];
+  const a = createFakeBridge({ replies: [JSON.stringify(clipped)] });
+  const out = await byName.run_pixelmath.handler(apiFrom(a.ctx), { view_id: 'RGB', expression: '$T*100' });
+  assert.match(out.text, /^PixelMath applied\. Truncated to \[0,1\]: /);
+  assert.match(out.text, /R 0\.0000% below 0 \(min 0\.000\), 3\.4000% above 1 \(max 3\.100\)/);
+  assert.match(out.text, /G 0\.1200% below 0/);
+  assert.doesNotMatch(out.text, /\bB \d/);
+  const b = createFakeBridge({ replies: [JSON.stringify([{ below: 0, above: 0, min: 0, max: 0.5 }])] });
+  const quiet = await byName.run_pixelmath.handler(apiFrom(b.ctx), { view_id: 'L', expression: '$T' });
+  assert.equal(quiet.text, 'PixelMath applied. No sample fell outside [0,1].');
+});
+
+test('pixelmath_new_image copies size_from\'s astrometric solution and reports clipping', async () => {
+  const a = createFakeBridge({ replies: [JSON.stringify({ clip: [{ below: 0, above: 0.5, min: 0, max: 2 }], solution: true })] });
+  const out = await byName.pixelmath_new_image.handler(apiFrom(a.ctx), { output_id: 'S', size_from: 'base', color: 'gray', expression: 'base*2' });
+  assert.match(a.emitted[0], /if \(true && __w\.hasAstrometricSolution/);
+  assert.match(a.emitted[0], /__nw\.copyAstrometricSolution\(__w\)/);
+  assert.match(a.emitted[0], /P\.truncate = false/);
+  assert.match(out.text, /Astrometric solution copied from base\./);
+  assert.match(out.text, /K 0\.0000% below 0 \(min 0\.000\), 50\.0000% above 1/);
+  const b = createFakeBridge({ replies: [JSON.stringify({ clip: [], solution: false })] });
+  const off = await byName.pixelmath_new_image.handler(apiFrom(b.ctx), { output_id: 'S', size_from: 'base', color: 'gray', expression: 'base', copy_astrometric_solution: false });
+  assert.match(b.emitted[0], /if \(false && __w\.hasAstrometricSolution/);
+  assert.doesNotMatch(off.text, /Astrometric/);
 });

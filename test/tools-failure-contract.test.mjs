@@ -22,6 +22,7 @@ const EXCLUDED = new Set([
   'pixinsight_info', 'scan_workspace', // report the connector's own state; no PixInsight
   'list_open_images', // reads api.listImages, which this fake answers
   'find_filters', 'run_spfc', // read PixInsight's filter database from disk before any pjsr
+  'ensure_dir', // creates a folder with Node's fs; no PixInsight
 ]);
 
 const OPEN_VIEWS = ['V1', 'V2', 'V3', 'M1'];
@@ -31,7 +32,7 @@ const OPEN_VIEWS = ['V1', 'V2', 'V3', 'M1'];
 function inputFor(def, dir) {
   const overrides = {
     pixelmath_new_image: { color: 'gray', expression: 'V1' },
-    run_mgc: { mars_files: [path.join(dir, 'fake.xmars')] },
+    run_mgc: { mars_files: [path.join(dir, 'fake.xmars')], filter: 'L' }, // the harness's views are mono
     export_image: { file_path: 'out.png' },
     run_pjsr_file: { path: path.join(dir, 'snippet.js') },
     open_image: { file_path: path.join(dir, 'image.xisf') },

@@ -519,3 +519,51 @@ test('robust_median_stretch: a failed PixelMath in any pass of several closes th
   assert.equal(b.emitted.length, 3);
   assert.match(b.emitted[2], /forceClose/);
 });
+
+// ---------------------------------------------------------------------------
+// set_stf: the auto-stretch values of auto_stretch, stored as the view's STF rows [m, c0, c1, r0, r1]
+// ---------------------------------------------------------------------------
+
+const STF_OF = (code) => JSON.parse(code.match(/mainView\.stf = (\[.*\]);/)[1]);
+
+test('set_stf: mono, defaults: the auto_stretch c0 and m as STF rows, pixels untouched', async () => {
+  const { api, emitted } = compilingApi({ stats: { median: 0.01, mad: 0.001 } });
+  const out = await run('set_stf', api, { view_id: 'L' });
+  assert.equal(emitted.length, 1);
+  assert.doesNotMatch(emitted[0], /HistogramTransformation|executeOn/);
+  const S = STF_OF(emitted[0]);
+  for (const i of [0, 1, 2]) {
+    near(S[i][0], 0.01235129265168185, `m[${i}]`);
+    near(S[i][1], 0.00584872, `c0[${i}]`);
+    assert.deepEqual(S[i].slice(2), [1, 0, 1]);
+  }
+  assert.deepEqual(S[3], [0.5, 0, 1, 0, 1]);
+  assert.match(out.text, /STF set on L \(mono, target_bg 0\.25, shadows_clipping -2\.8\)/);
+});
+
+test('set_stf: colour, linked: one set of values on R, G and B; per channel otherwise', async () => {
+  const a = compilingApi({ stats: RGB_STATS });
+  await run('set_stf', a.api, { view_id: 'RGB', linked: true });
+  const S = STF_OF(a.emitted[0]);
+  for (const i of [0, 1, 2]) { near(S[i][0], 0.041285358659420235, `m[${i}]`); near(S[i][1], 0.00584872, `c0[${i}]`); }
+  const b = compilingApi({ stats: RGB_STATS });
+  await run('set_stf', b.api, { view_id: 'RGB' });
+  const P = STF_OF(b.emitted[0]);
+  assert.notEqual(P[0][1], P[1][1], 'per-channel clipping points differ');
+});
+
+test('set_stf: from_view_id copies the STF and refuses auto-stretch parameters with it', async () => {
+  const { api, emitted } = compilingApi({ replies: [JSON.stringify([[0.2, 0.01, 1, 0, 1]])] });
+  const out = await run('set_stf', api, { view_id: 'starless', from_view_id: 'final' });
+  assert.match(emitted[0], /d\.mainView\.stf = s\.mainView\.stf;/);
+  assert.match(out.text, /STF of final copied to starless/);
+  const bad = compilingApi();
+  await assert.rejects(run('set_stf', bad.api, { view_id: 'a', from_view_id: 'b', linked: true }), /linked cannot be given/);
+  assert.equal(bad.emitted.length, 0);
+});
+
+test('set_stf refuses target_bg outside (0, 1) before anything is sent', async () => {
+  const { api, emitted } = compilingApi({ stats: { median: 0.01, mad: 0.001 } });
+  await assert.rejects(run('set_stf', api, { view_id: 'L', target_bg: 1 }), /target_bg/);
+  assert.equal(emitted.length, 0);
+});
