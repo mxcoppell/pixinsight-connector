@@ -144,17 +144,40 @@ function readSource(file, label) {
   }
 }
 
+// The source parts of a run_pjsr / run_pjsr_file call (files read, not yet sent). Exported for the
+// server, which starts the same code as a job when the call sets `async` (src/server.mjs).
+export function pjsrParts(tool, input) {
+  if (tool === 'run_pjsr_file') return [{ name: path.basename(input.path), text: readSource(input.path, 'path') }];
+  const includes = input.include ?? [];
+  if (!Array.isArray(includes)) throw new Error('run_pjsr: "include" must be an array of absolute paths');
+  const parts = includes.map((f) => ({ name: path.basename(f), text: readSource(f, 'include') }));
+  parts.push({ name: 'code', text: String(input.code) });
+  return parts;
+}
+
+// `async` is handled by the server's job control; a catalog served without it refuses the flag
+// rather than running the code synchronously behind the caller's back.
+const NO_JOBS = { isError: true, text: '`async` needs the connector server\'s job control, which is not available here. Nothing was sent to PixInsight.' };
+
+const ASYNC_PARAM = {
+  type: 'boolean',
+  description: 'Run as a job: the call returns a job id at once and the code runs in PixInsight in the background. job_status reports on the job and returns its result; cancel_job stops it. While a job runs, other calls that use PixInsight are refused. The running code can call mcpProgress(text) to report progress and mcpCancelRequested() to see whether cancel_job was called.',
+};
+
 const runPjsrFile = {
   name: 'run_pjsr_file',
   description: 'Run a PJSR (JavaScript, V8 engine) source file from disk inside PixInsight and return its console output. Same execution model as run_pjsr, with the code read from a file instead of passed inline. No ES6 module syntax; the file content is eval-ed, so #include does not work. Code that does not parse is refused with its line number before anything reaches PixInsight.',
   inputSchema: {
     type: 'object',
-    properties: { path: { type: 'string', description: 'Absolute path to the PJSR source file.' } },
+    properties: {
+      path: { type: 'string', description: 'Absolute path to the PJSR source file.' },
+      async: ASYNC_PARAM,
+    },
     required: ['path'],
   },
   async handler(api, input) {
-    const code = readSource(input.path, 'path');
-    return runChecked(api, [{ name: path.basename(input.path), text: code }]);
+    if (input.async) return NO_JOBS;
+    return runChecked(api, pjsrParts('run_pjsr_file', input));
   },
 };
 
@@ -166,15 +189,13 @@ const runPjsr = {
     properties: {
       code: { type: 'string', description: 'PJSR code. The value of the last expression is returned.' },
       include: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of PJSR source files whose contents run before `code`, in this order, in the same scope, so functions they define can be called from `code`.' },
+      async: ASYNC_PARAM,
     },
     required: ['code'],
   },
   async handler(api, input) {
-    const includes = input.include ?? [];
-    if (!Array.isArray(includes)) throw new Error('run_pjsr: "include" must be an array of absolute paths');
-    const parts = includes.map((f) => ({ name: path.basename(f), text: readSource(f, 'include') }));
-    parts.push({ name: 'code', text: String(input.code) });
-    return runChecked(api, parts);
+    if (input.async) return NO_JOBS;
+    return runChecked(api, pjsrParts('run_pjsr', input));
   },
 };
 

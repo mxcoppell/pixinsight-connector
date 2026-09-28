@@ -758,9 +758,9 @@ test('a real loaded pack merges into tools/list alongside core tools, is callabl
 
   const catalog = assembleCatalog({ core, packs, packTools, resetBridge: () => {}, log() {} });
 
-  // core + the four server-defined tools, plus the one pack tool -- proves the merge is additive,
+  // core + the six server-defined tools, plus the one pack tool -- proves the merge is additive,
   // not just "the pack tool is somewhere in there".
-  assert.equal(catalog.definitions.length, core.definitions.length + 4 + packTools.length);
+  assert.equal(catalog.definitions.length, core.definitions.length + 6 + packTools.length);
 
   const { ctx } = createFakeBridge();
   // fixture_stretch declares a `view_id` input, which server.mjs's missingViews pre-check (applied

@@ -19,7 +19,7 @@ test('the generated tool table lists every core tool plus the server-defined too
   const table = await renderToolTable();
   const rows = table.split('\n').filter((l) => /^\| `/.test(l));
   const names = rows.map((l) => l.match(/^\| `([^`]+)`/)[1]);
-  const expected = [...core.definitions.map((d) => d.name), 'workspace_info', 'set_workspace', 'resume_bridge', 'list_packs'];
+  const expected = [...core.definitions.map((d) => d.name), 'workspace_info', 'set_workspace', 'resume_bridge', 'list_packs', 'job_status', 'cancel_job'];
   assert.deepEqual([...names].sort(), [...expected].sort());
   assert.equal(new Set(names).size, names.length, 'a tool appears twice');
   for (const r of rows) assert.equal(r.split(/(?<!\\)\|/).length, 5, `malformed row: ${r}`);

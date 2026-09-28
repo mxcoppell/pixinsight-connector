@@ -57,6 +57,22 @@ const STARTING_GRACE_MS = 60_000;
 const TORN_BEAT_REREADS = 3;
 const TORN_BEAT_REREAD_MS = 25;
 const HEARTBEAT_STATES = new Set(['starting', 'idle', 'busy']);
+// A "busy" beat cannot be refreshed while a native process runs, so its age alone never means dead.
+// Once it is this old, whether its watcher can still be alive is checked (at most this often):
+// PixInsight not running at all, PixInsight started after the beat, or the command the beat names
+// finished or vanished without the watcher ever returning to its loop.
+const BUSY_RECHECK_MS = 5000;
+// How long the command a "busy" beat names may be gone before the beat counts as left behind. A
+// watcher that finishes a command deletes its claim and writes "idle" on its next pump, well within this.
+const BUSY_FINISHED_GRACE_MS = 15_000;
+// PixInsight that was just started may not act on a -x launch it receives while it is still
+// initializing (seen twice after a crash: the first launch never ran, a retry seconds later started at
+// once). After a fresh start, a launch with no heartbeat after this long is sent again, a bounded
+// number of times; a launch that was merely queued then runs as a second watcher that idles out.
+const FRESH_START_RELAUNCH_MS = 10_000;
+const MAX_FRESH_START_RELAUNCHES = 3;
+// Send timeout for a command started as a job (run_pjsr with async): long runs are what jobs are for.
+const DEFAULT_JOB_TIMEOUT_MS = 12 * 60 * 60 * 1000;
 // Cross-process launch lock (<bridge dir>/launch.lock, created with O_EXCL): at most one
 // `PixInsight -x` of this target's watcher at a time across every server working in this target on
 // this machine (servers in other targets are kept from starting PixInsight twice by the launch mutex,
@@ -121,6 +137,17 @@ export class BridgeAbortError extends BridgeCrashError {
     super(message);
     this.name = 'BridgeAbortError';
     this.isAbort = true;
+  }
+}
+
+/**
+ * A command cancelled with cancel() before any watcher claimed it: it never ran.
+ */
+export class JobCancelledError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'JobCancelledError';
+    this.isCancelled = true;
   }
 }
 
@@ -199,6 +226,10 @@ export function createBridge(opts = {}) {
   // serves it. Re-pointed by setBridgeDir(); each send keeps the dir it was written to until it settles.
   let bridgeDir = opts.bridgeDir;
   const cmdDirOf = (d) => path.join(d, 'commands');
+  // cancel/<id>: asks the watcher to stop the command it is running (seen at its next processEvents);
+  // progress/<id>: the latest mcpProgress() text of a running command. Both are removed when it settles.
+  const cancelDirOf = (d) => path.join(d, 'cancel');
+  const progressDirOf = (d) => path.join(d, 'progress');
   const resDirOf = (d) => path.join(d, 'results');
   const quarantineDirOf = (d) => path.join(d, 'quarantine');
   // Each bridge dir has its own watcher (a script materialized into that target, serving only that
@@ -222,6 +253,8 @@ export function createBridge(opts = {}) {
         lastLaunchAt: 0,
         watcherPath: null,
         notedWatcherStart: undefined,
+        lastBusyRaw: null,
+        busyCheck: null,
       };
       sites.set(dir, site);
     }
@@ -263,6 +296,8 @@ export function createBridge(opts = {}) {
   const createdAt = now();
   // IDs of commands this bridge wrote and is still waiting on: never swept as stale.
   const ownPending = new Map(); // id -> { cmdFile }
+  // Commands in flight, by id: the dir they live in and whether cancel() was asked for them.
+  const inflight = new Map(); // id -> { dir, tool, cancel }
   const onExit = opts.onExit ?? onProcessExit;
   // Created here, bound only while PixInsight itself is being started: no I/O until then.
   const launchMutex = opts.launchMutex ?? createLaunchMutex({ net: opts.net, env, log: (m) => logFn(`  [bridge] ${m}`) });
@@ -297,6 +332,11 @@ export function createBridge(opts = {}) {
     const parts = String(raw).trim().split(' ');
     const beat = { state: parts[0], ts: Number(parts[parts.length - 1]) };
     if (!HEARTBEAT_STATES.has(beat.state) || !Number.isFinite(beat.ts) || beat.ts <= 0) return { unknown: true };
+    // "busy <tool> <ms>" (watchers before 0.8.0) or "busy <tool> <command id> <ms>".
+    if (beat.state === 'busy') {
+      beat.tool = parts.length >= 3 ? parts[1] : null;
+      beat.cmdId = parts.length >= 4 ? parts[2] : null;
+    }
     return beat;
   }
 
@@ -326,18 +366,39 @@ export function createBridge(opts = {}) {
       return true;
     }
     if (beat.state !== 'busy') return now() - beat.ts < 5000;
-    if (now() - beat.ts > 30_000) {
-      // A "busy" left behind by a PixInsight that crashed must not count as
-      // alive. probe.startedAt() returning null (unknown) is falsy, same as
-      // the rest of this function treats an unresolvable start time: skip
-      // the stale-heartbeat cleanup rather than guess.
-      const start = await probe.startedAt();
-      if (start && beat.ts < start) {
-        bfs.rmSync(site.heartbeatFile, { force: true });
-        return false;
-      }
+    const reason = await staleBusyReason(site, beat);
+    if (!reason) return true;
+    // Re-read before removing: a watcher that has just written a new beat must not lose it.
+    if (readHeartbeatRaw(site) === site.lastBusyRaw) {
+      try { bfs.rmSync(site.heartbeatFile, { force: true }); } catch {}
     }
-    return true;
+    trace({ kind: 'event', event: 'stale heartbeat', dir: site.dir, beat: site.lastBusyRaw, reason });
+    logFn(`  [bridge] cleared a "busy" heartbeat left behind (${reason})`);
+    return false;
+  }
+
+  // Why a "busy" beat can no longer belong to a live watcher, or null while it may. Before 2.3.0 a busy
+  // beat was only ever cleared when PixInsight had been restarted after it, so a beat left by a
+  // PixInsight that was killed and not yet started again blocked autostart: every call failed with
+  // "crashed mid-command, retry" until the file was moved by hand. Checks run at most every
+  // BUSY_RECHECK_MS per dir; the answers of an OS that cannot say (null) never condemn a beat.
+  async function staleBusyReason(site, beat) {
+    site.lastBusyRaw = readHeartbeatRaw(site);
+    if (now() - beat.ts < BUSY_RECHECK_MS) return null;
+    if (site.busyCheck && site.busyCheck.raw === site.lastBusyRaw && now() - site.busyCheck.at < BUSY_RECHECK_MS) return null;
+    site.busyCheck = { raw: site.lastBusyRaw, at: now() };
+    let running = null;
+    try { running = await probe.isRunning(); } catch { running = null; }
+    if (running === false) return 'PixInsight is not running';
+    let start = null;
+    try { start = await probe.startedAt(); } catch { start = null; }
+    if (start && beat.ts < start) return 'PixInsight was started again after it was written';
+    if (beat.cmdId && now() - beat.ts > BUSY_FINISHED_GRACE_MS) {
+      const cmdDir = cmdDirOf(site.dir);
+      const pending = bfs.existsSync(path.join(cmdDir, beat.cmdId + '.running')) || bfs.existsSync(path.join(cmdDir, beat.cmdId + '.json'));
+      if (!pending) return `the command it names (${beat.cmdId}) is finished or gone and the watcher never returned to its loop`;
+    }
+    return null;
   }
 
   // The watcher's start-up record (watcher.json, written before its first heartbeat): which watcher
@@ -477,9 +538,11 @@ export function createBridge(opts = {}) {
   // without its heartbeat ever being seen (e2e: a first -x launch whose first heartbeat and idle
   // exit landed in the same loop iteration), relaunch it, a bounded number of times. A deliberate
   // stop (Pause/Abort, shutdown file) during the start is honoured as such.
-  async function launchAndAwaitWatcher(site) {
+  async function launchAndAwaitWatcher(site, { freshProcess = false } = {}) {
     const watcherPath = site.watcherPath;
     let launches = 0;
+    let exitRelaunches = 0;
+    let freshRelaunches = 0;
     let launchedAt = 0;
     let lastBeatSeen = null;
     let exitedAfterLaunch = null;
@@ -528,11 +591,20 @@ export function createBridge(opts = {}) {
             throw new BridgeAbortError(`Watcher was stopped on purpose (${stop.reason}) while it was starting; not relaunching it. Call the resume_bridge tool once the user says to continue.`);
           }
           exitedAfterLaunch = stop;
-          if (launches > MAX_WATCHER_RELAUNCHES) {
+          if (++exitRelaunches > MAX_WATCHER_RELAUNCHES) {
             throw new Error(`The watcher started and exited ("${stop.reason}") ${launches} time(s) without being seen alive. ${await watcherDiagnostics(site, launches, launchedAt, lastBeatSeen, stop)}`);
           }
           logFn(`  [bridge] watcher exited ("${stop.reason}") before its heartbeat was seen; relaunching (launch ${launches + 1})`);
           launch(stop.reason);
+          continue;
+        }
+        // Only a beat written since this launch counts: a file left by the PixInsight that crashed does not.
+        const b = readBeat(site);
+        const beatSinceLaunch = !!b && !b.unknown && b.ts >= launchedAt;
+        if (freshProcess && !beatSinceLaunch && freshRelaunches < MAX_FRESH_START_RELAUNCHES && now() - launchedAt > FRESH_START_RELAUNCH_MS) {
+          freshRelaunches++;
+          logFn(`  [bridge] no heartbeat ${Math.round((now() - launchedAt) / 1000)}s after launching into a PixInsight that was just started; launching again (launch ${launches + 1})`);
+          launch('PixInsight was still starting');
           continue;
         }
         if (now() - launchedAt > WATCHER_START_TIMEOUT_MS) {
@@ -680,7 +752,7 @@ export function createBridge(opts = {}) {
     quarantineStaleCommands(site.dir);
     await pruneLaunchTickets(site, freshProcess);
     logFn(`  [bridge] no watcher running — launching on demand (linger ${lingerMs}ms)`);
-    await launchAndAwaitWatcher(site);
+    await launchAndAwaitWatcher(site, { freshProcess });
   }
   // Clean up stale results from previous crashed sessions.
   function removeStaleResults(dir) {
@@ -745,8 +817,12 @@ export function createBridge(opts = {}) {
     const cmdFile = path.join(cmdDir, id + '.json');
     const runningFile = path.join(cmdDir, id + '.running'); // the name a watcher claims it under
     const traced = { cmdId: id, tool, params, dir, sentAt: null };
+    const timeoutMs = sendOpts?.timeoutMs ?? sendTimeoutMs;
     const settle = () => {
       ownPending.delete(id);
+      inflight.delete(id);
+      try { bfs.rmSync(path.join(cancelDirOf(dir), id), { force: true }); } catch {}
+      try { bfs.rmSync(path.join(progressDirOf(dir), id), { force: true }); } catch {}
     };
     // Every way this send gives up removes its own command file, so no later watcher runs a command
     // nobody is waiting for any more (a timeout, a crash the caller is told to retry, an abort).
@@ -784,6 +860,8 @@ export function createBridge(opts = {}) {
     const sentAt = now(); // the send timeout counts from the write
     traced.sentAt = sentAt;
     trace({ kind: 'sent', ...traced });
+    inflight.set(id, { dir, tool, cancel: false });
+    try { sendOpts?.onSent?.(id); } catch {}
     try {
       await ensureWatcher(site);
     } catch (e) {
@@ -814,6 +892,14 @@ export function createBridge(opts = {}) {
       };
       const poll = setInterval(async () => {
         if (settled) return;
+        // cancel() on a command no watcher has claimed yet: take it off the queue, so it never runs.
+        if (inflight.get(id)?.cancel && !sawClaim && !bfs.existsSync(runningFile)) {
+          try { bfs.rmSync(cmdFile, { force: true }); } catch {}
+          if (!bfs.existsSync(cmdFile) && !bfs.existsSync(runningFile) && !bfs.existsSync(path.join(resDir, id + '.json'))) {
+            fail(new JobCancelledError(`${tool} was cancelled before PixInsight started it; nothing ran.`), 'cancelled');
+            return;
+          }
+        }
         const rp = path.join(resDir, id + '.json');
         if (bfs.existsSync(rp)) {
           let r;
@@ -909,13 +995,50 @@ export function createBridge(opts = {}) {
             consecutiveDeadChecks = 0;
           }
         }
-        if (now() - sentAt > sendTimeoutMs) fail(new Error('Timeout: ' + tool), 'timeout');
+        if (now() - sentAt > timeoutMs) {
+          fail(new Error(`Timeout: ${tool} (no result after ${Math.round(timeoutMs / 60000)} min). PixInsight may still be running it, or be showing a dialog that waits for a click: ask the user to look at PixInsight.`), 'timeout');
+        }
       }, pollIntervalMs);
     });
   }
 
-  async function pjsr(code) {
-    const r = await send('run_script', '__script__', { code });
+  // Asks for a command in flight to stop. Queued (not yet claimed): it is taken off the queue and its
+  // send fails with JobCancelledError. Running: cancel/<id> is written, and the watcher stops the
+  // script at its next processEvents() call (a single native process call cannot be interrupted).
+  function cancel(cmdId) {
+    const f = inflight.get(cmdId);
+    if (!f) return { state: 'unknown' };
+    f.cancel = true;
+    const claimed = bfs.existsSync(path.join(cmdDirOf(f.dir), cmdId + '.running'));
+    try {
+      bfs.mkdirSync(cancelDirOf(f.dir), { recursive: true });
+      bfs.writeFileSync(path.join(cancelDirOf(f.dir), cmdId), String(now()));
+    } catch {}
+    return { state: claimed ? 'signalled' : 'requested' };
+  }
+
+  // What the watcher of the current dir last said: its heartbeat (state, tool, command id, age) and,
+  // for a command id, the latest mcpProgress() text that command wrote ({ text, at }).
+  function status(cmdId) {
+    const dir = realDir(bridgeDir);
+    const site = siteOf(inflight.get(cmdId)?.dir ?? dir);
+    const beat = readBeat(site);
+    const out = { heartbeat: beat && !beat.unknown ? { ...beat, ageMs: now() - beat.ts } : null, progress: null };
+    if (cmdId) {
+      try {
+        const raw = bfs.readFileSync(path.join(progressDirOf(site.dir), cmdId), 'utf-8');
+        const cut = raw.indexOf(' ');
+        const at = Number(raw.slice(0, cut));
+        out.progress = { text: raw.slice(cut + 1), at: Number.isFinite(at) ? at : null };
+      } catch {}
+    }
+    return out;
+  }
+
+  async function pjsr(code, pjsrOpts) {
+    const r = await send('run_script', '__script__', { code }, pjsrOpts?.job
+      ? { onSent: pjsrOpts.onSent, timeoutMs: pjsrOpts.timeoutMs ?? DEFAULT_JOB_TIMEOUT_MS }
+      : pjsrOpts);
     r.result = r.outputs?.consoleOutput;
     if (r.status !== 'error') r.status = 'ok';
     return r;
@@ -930,5 +1053,5 @@ export function createBridge(opts = {}) {
 
   // Each result carries its own Process Console lines (outputs.consoleErrors); the server reads
   // them per tool call, so the bridge keeps no shared buffer.
-  return { send, pjsr, listImages, log, setBridgeDir };
+  return { send, pjsr, listImages, log, setBridgeDir, cancel, status };
 }

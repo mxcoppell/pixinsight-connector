@@ -35,9 +35,9 @@ test('a multi-module pack loads, and assembleCatalog serves core + the server-de
   const catalog = assembleCatalog({ core, packs, packTools, resetBridge: () => {}, log: (m) => mergeLogs.push(m) });
   assert.deepEqual(catalog.shadowed, [], 'no pack tool replaces a core tool');
   assert.deepEqual(mergeLogs, [], 'no reserved-name rejection or collision');
-  assert.equal(catalog.definitions.length, core.definitions.length + 4 + PACK_TOOLS.length);
+  assert.equal(catalog.definitions.length, core.definitions.length + 6 + PACK_TOOLS.length);
   const names = new Set(catalog.definitions.map((d) => d.name));
-  for (const n of [...core.definitions.map((d) => d.name), 'workspace_info', 'set_workspace', 'resume_bridge', 'list_packs', ...PACK_TOOLS]) {
+  for (const n of [...core.definitions.map((d) => d.name), 'workspace_info', 'set_workspace', 'resume_bridge', 'list_packs', 'job_status', 'cancel_job', ...PACK_TOOLS]) {
     assert.ok(names.has(n), `${n} is served`);
   }
 });
