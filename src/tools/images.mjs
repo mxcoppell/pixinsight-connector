@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { toPixPath } from '../platform.mjs';
 import { isInside, realPathOf } from '../workspace.mjs';
+import { clampFractions } from './compare.mjs';
 
 const q = (s) => JSON.stringify(String(s));
 
@@ -279,7 +280,7 @@ const getImageDimensions = {
 
 const getImageStats = {
   name: 'get_image_stats',
-  description: 'Get image statistics: median, MAD, min, max, per-channel medians.',
+  description: 'Get image statistics: median, MAD, min, max, per-channel medians, and per channel the fraction of samples at exactly 0 and at exactly 1 (clampFractions).',
   inputSchema: {
     type: 'object',
     properties: { view_id: { type: 'string', description: 'PixInsight view ID' } },
@@ -287,6 +288,7 @@ const getImageStats = {
   },
   async handler(api, input) {
     const stats = await api.stats(input.view_id);
+    stats.clampFractions = await clampFractions(api, input.view_id);
     return { text: JSON.stringify(stats, null, 2) };
   },
 };

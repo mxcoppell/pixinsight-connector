@@ -8,6 +8,9 @@ import { toPixPath } from '../platform.mjs';
 const q = (s) => JSON.stringify(String(s));
 const SENTINEL = '@@SOLVE@@';
 
+// Scale-seed factors tried in order when the seeded solve fails: the seed, then 0.5x, 2x, 1/3x, 3x.
+const SCALE_FACTORS = [1, 0.5, 2, 1 / 3, 3];
+
 const num = (v) => (v === undefined || v === null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
 // Models often fill optional numeric parameters with 0; for these fields 0 means "not given".
 const pos = (v) => { const n = num(v); return n !== null && n > 0 ? n : null; };
@@ -22,6 +25,7 @@ function plateSolveScript(opts) {
     pixsz: pos(opts.pixelSizeUm),
     jd: pos(opts.jd),
     starsDir: opts.starsDir,
+    factors: opts.scaleSearch === false ? [1] : SCALE_FACTORS,
   };
   return `
     var __o = ${JSON.stringify(o)};
@@ -61,6 +65,7 @@ function plateSolveScript(opts) {
         if (jd === null) jd = Date.now() / 86400000 + 2440587.5;
       }
       m.observationTime = jd;
+      __res.expectedScale = m.resolution > 0 ? m.resolution * 3600 : null;
       if (m.ra === undefined || m.ra === null || isNaN(m.ra) || m.dec === undefined || m.dec === null || isNaN(m.dec))
         throw new Error('No RA/Dec seed: pass ra_deg and dec_deg (approximate is fine, within a fraction of the field).');
       if (!(m.resolution > 0)) throw new Error('No scale seed: pass pixel_scale (arcsec/px) or focal_length_mm + pixel_size_um.');
@@ -73,14 +78,35 @@ function plateSolveScript(opts) {
       ImageSolver.starsCSVFilePath = function (isTarget) {
         return __o.starsDir + (isTarget ? '/stars-t.csv' : '/stars-r.csv');
       };
+      // The seeded scale first; if that fails, the same seed times each wider factor in turn (a master
+      // resampled or drizzled by the stacker has a scale far from the optics' value).
+      var __base = m.resolution;
+      __res.attempts = [];
       try {
-        e.solveImage(w);
+        // An image may carry an earlier solution, so an attempt counts as solved by solveImage's own result
+        // (true), or, where it returns nothing, by the solution being present afterwards.
+        for (var a = 0; a < __o.factors.length; a++) {
+          m.resolution = __base * __o.factors[a];
+          m.observationTime = jd;
+          var __err = null, __ret;
+          try { __ret = e.solveImage(w); } catch (se) { __err = (se && se.message) ? se.message : String(se); __ret = false; }
+          var __ok = __ret === true || (__ret === undefined && !!w.hasAstrometricSolution);
+          __res.attempts.push({ seedScale: m.resolution * 3600, solved: __ok, error: __err });
+          if (__ok) break;
+        }
       } finally {
         ImageSolver.starsCSVFilePath = __starsPath;
       }
-      __res.solved = !!w.hasAstrometricSolution;
+      __res.solved = __res.attempts.length > 0 && __res.attempts[__res.attempts.length - 1].solved && !!w.hasAstrometricSolution;
       __res.seconds = (Date.now() - t0) / 1000;
+      if (!__res.solved && __res.attempts.length) __res.error = __res.attempts[__res.attempts.length - 1].error || 'no solution at any scale seed tried';
       if (__res.solved) {
+        // Solved scale from the solution itself: the angle between two points dx px apart on the centre row.
+        var __im = w.mainView.image, __dx = Math.max(1, Math.min(1000, Math.floor(__im.width / 4)));
+        var __p0 = w.imageToCelestial(new Point(__im.width / 2, __im.height / 2)), __p1 = w.imageToCelestial(new Point(__im.width / 2 + __dx, __im.height / 2));
+        var __d2r = Math.PI / 180, __c = Math.sin(__p0.y * __d2r) * Math.sin(__p1.y * __d2r) + Math.cos(__p0.y * __d2r) * Math.cos(__p1.y * __d2r) * Math.cos((__p0.x - __p1.x) * __d2r);
+        __res.solvedScale = Math.acos(Math.min(1, __c)) / __d2r * 3600 / __dx;
+        if (__res.expectedScale) __res.scaleRatio = __res.solvedScale / __res.expectedScale;
         __res.summary = w.astrometricSolutionSummary().split('\\n').filter(function (l) {
           return /Reference catalog|Resolution|Rotation|Projection origin|Control points|Observation/.test(l);
         }).map(function (l) { return l.replace(/\\s*\\.{2,}\\s*/, ': ').trim(); });
@@ -105,7 +131,7 @@ function parsePlateSolveResult(text) {
 
 const runPlateSolve = {
   name: 'run_plate_solve',
-  description: 'Plate solve an open image with ImageSolver against the local Gaia DR3/SP database (offline). Adds the astrometric solution needed by run_spfc, run_mgc and run_spcc. Needs an approximate position (ra_deg, dec_deg; within a fraction of the field is enough) and scale (pixel_scale in arcsec/px, or focal_length_mm + pixel_size_um) unless the image keywords already carry RA, DEC and FOCALLEN/XPIXSZ. The scale seed may be off by about 2x. Observation time is read from DATE-OBS/DATE, else today.',
+  description: 'Plate solve an open image with ImageSolver against the local Gaia DR3/SP database (offline). Adds the astrometric solution needed by run_spfc, run_mgc and run_spcc. Needs an approximate position (ra_deg, dec_deg; within a fraction of the field is enough) and scale (pixel_scale in arcsec/px, or focal_length_mm + pixel_size_um) unless the image keywords already carry RA, DEC and FOCALLEN/XPIXSZ. If the seeded solve fails, it is retried with the scale seed multiplied by 0.5, 2, 1/3 and 3 in turn (scale_search false tries the seed only). The result gives the solved scale from the solution, the expected scale (the seed, or the one the keywords give) and their ratio, which is far from 1 for a master a stacker resampled or drizzled. Observation time is read from DATE-OBS/DATE, else today.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -116,6 +142,7 @@ const runPlateSolve = {
       focal_length_mm: { type: 'number', description: 'Focal length in mm (use with pixel_size_um instead of pixel_scale)' },
       pixel_size_um: { type: 'number', description: 'Pixel size in microns' },
       observation_jd: { type: 'number', description: 'Julian date of the observation (only if no DATE-OBS/DATE keyword)' },
+      scale_search: { type: 'boolean', description: 'Retry with wider scale seeds when the seeded solve fails (default true)' },
     },
     required: ['view_id'],
   },
@@ -125,13 +152,21 @@ const runPlateSolve = {
       raDeg: input.ra_deg, decDeg: input.dec_deg,
       pixelScale: input.pixel_scale, focalMm: input.focal_length_mm, pixelSizeUm: input.pixel_size_um,
       jd: input.observation_jd,
+      scaleSearch: input.scale_search !== false && input.scale_search !== 'false',
       starsDir: toPixPath(api.workspace.scratchDir) + '/tmp_platesolve',
     }));
     const out = r.status === 'error' ? { solved: false, error: r.error?.message || JSON.stringify(r.error) } : parsePlateSolveResult(r.result);
     if (!out.solved) {
-      return { isError: true, text: `Plate solve FAILED: ${(out.error || 'no solution found').replace(/\.$/, '')}.` };
+      const seeds = (out.attempts || []).map((x) => `${x.seedScale.toFixed(3)}"/px`);
+      return { isError: true, text: `Plate solve FAILED: ${(out.error || 'no solution found').replace(/\.$/, '')}.${seeds.length > 1 ? ` Scale seeds tried: ${seeds.join(', ')}.` : ''}` };
     }
-    return { text: `Plate solve OK in ${out.seconds}s.\n${(out.summary || []).join('\n')}` };
+    const tried = (out.attempts || []).length;
+    const scale = typeof out.solvedScale === 'number'
+      ? `\nSolved scale ${out.solvedScale.toFixed(4)}"/px` + (typeof out.expectedScale === 'number'
+        ? `, expected ${out.expectedScale.toFixed(4)}"/px, ratio ${out.scaleRatio.toFixed(3)}` : ', expected scale unknown')
+        + (tried > 1 ? ` (solved at scale seed ${tried} of ${tried}: ${out.attempts[tried - 1].seedScale.toFixed(4)}"/px)` : '') + '.'
+      : '';
+    return { text: `Plate solve OK in ${out.seconds}s.\n${(out.summary || []).join('\n')}${scale}` };
   },
 };
 
