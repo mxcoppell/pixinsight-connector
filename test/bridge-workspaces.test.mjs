@@ -130,8 +130,8 @@ test('two targets, two watchers: each target\'s watcher serves only its own brid
   const results = await Promise.all(sends);
   assert.deepEqual(results.map((r) => r.result), ['ran A1', 'ran A2', 'ran B1', 'ran B2']);
   assert.equal(fs.readdirSync(path.join(wsA, 'results')).length, 0, 'results were written in, and consumed from, the sender\'s own dir');
-  assert.match(fs.readFileSync(path.join(wsA, 'heartbeat'), 'utf8'), /^busy run_script \d+$/, 'each watcher beats in its own dir');
-  assert.match(fs.readFileSync(path.join(wsB, 'heartbeat'), 'utf8'), /^busy run_script \d+$/);
+  assert.match(fs.readFileSync(path.join(wsA, 'heartbeat'), 'utf8'), /^busy run_script [\w-]+ \d+$/, 'each watcher beats in its own dir (busy <tool> <command id> <ms>)');
+  assert.match(fs.readFileSync(path.join(wsB, 'heartbeat'), 'utf8'), /^busy run_script [\w-]+ \d+$/);
 });
 
 test('two connectors sharing one target: one watcher, one dir, and no command runs twice', async (t) => {

@@ -25,7 +25,7 @@ tool does and what each parameter means, never which value to pick or what to do
   (`src/tools/index.mjs`) scans the directory; there is no registry, import list or category map to edit.
 - "Run one process on one view" tools use `defineProcessTool` (`src/define.mjs`); anything else is a
   hand-written `{ name, description, inputSchema, handler(api, input) }` descriptor. See `CONTRIBUTING.md`.
-- `workspace_info`, `set_workspace`, `resume_bridge` and `list_packs` are defined in `src/server.mjs` because they
+- `workspace_info`, `set_workspace`, `resume_bridge`, `list_packs`, `job_status` and `cancel_job` are defined in `src/server.mjs` because they
   need server-owned state.
 - After adding or renaming a tool, run `npm run docs:tools` to regenerate the tool list in `docs/tools.md`.
 

@@ -6,6 +6,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
+import { bool } from './pjsr-args.mjs';
 
 const q = (s) => JSON.stringify(String(s));
 
@@ -39,6 +40,8 @@ function unknownProcessCheck(name) {
     `list_processes lists the ones installed.');`;
 }
 
+export const NO_GUI_MESSAGES = 'if (P.noGUIMessages !== undefined) P.noGUIMessages = true;';
+
 // runProcess(api, name, params, viewId) -> { ok, message }
 //
 // The generic escape hatch: instantiate any PixInsight process by its PJSR
@@ -62,6 +65,10 @@ export async function runProcess(api, name, params, viewId) {
   const hasView = viewId !== undefined && viewId !== null;
   const nameLiteral = JSON.stringify(name);
   const lines = [unknownProcessCheck(name), `var P = new ${name};`, ...assignments];
+  // noGUIMessages routes a process's confirmations and warnings to the Process Console (Crop,
+  // Resample, Rotation and the other geometry processes otherwise open a modal dialog that stalls the
+  // bridge). Set on every instance that has the property, unless the caller set it.
+  if (!Object.prototype.hasOwnProperty.call(params || {}, 'noGUIMessages')) lines.push(NO_GUI_MESSAGES);
   if (hasView) {
     const viewIdLiteral = JSON.stringify(viewId);
     lines.push(
@@ -84,7 +91,7 @@ export async function runProcess(api, name, params, viewId) {
 
 const runProcessTool = {
   name: 'run_process',
-  description: 'Instantiate any PixInsight process by its PJSR constructor name, assign JSON-valued parameters onto the instance, and execute it on a view (when view_id is given) or globally (when it is omitted). Generic fallback for processes with no dedicated tool.',
+  description: 'Instantiate any PixInsight process by its PJSR constructor name, assign JSON-valued parameters onto the instance, and execute it on a view (when view_id is given) or globally (when it is omitted). Generic fallback for processes with no dedicated tool. A process that has the noGUIMessages property (Crop, DynamicCrop, Resample, IntegerResample, Rotation, FastRotation, ChannelMatch and others) runs with it set to true unless params sets it, so its confirmations and warnings go to the Process Console instead of a dialog.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -144,17 +151,40 @@ function readSource(file, label) {
   }
 }
 
+// The source parts of a run_pjsr / run_pjsr_file call (files read, not yet sent). Exported for the
+// server, which starts the same code as a job when the call sets `async` (src/server.mjs).
+export function pjsrParts(tool, input) {
+  if (tool === 'run_pjsr_file') return [{ name: path.basename(input.path), text: readSource(input.path, 'path') }];
+  const includes = input.include ?? [];
+  if (!Array.isArray(includes)) throw new Error('run_pjsr: "include" must be an array of absolute paths');
+  const parts = includes.map((f) => ({ name: path.basename(f), text: readSource(f, 'include') }));
+  parts.push({ name: 'code', text: String(input.code) });
+  return parts;
+}
+
+// `async` is handled by the server's job control; a catalog served without it refuses the flag
+// rather than running the code synchronously behind the caller's back.
+const NO_JOBS = { isError: true, text: '`async` needs the connector server\'s job control, which is not available here. Nothing was sent to PixInsight.' };
+
+const ASYNC_PARAM = {
+  type: 'boolean',
+  description: 'Run as a job: the call returns a job id at once and the code runs in PixInsight in the background. job_status reports on the job and returns its result; cancel_job stops it. While a job runs, other calls that use PixInsight are refused. The running code can call mcpProgress(text) to report progress and mcpCancelRequested() to see whether cancel_job was called.',
+};
+
 const runPjsrFile = {
   name: 'run_pjsr_file',
   description: 'Run a PJSR (JavaScript, V8 engine) source file from disk inside PixInsight and return its console output. Same execution model as run_pjsr, with the code read from a file instead of passed inline. No ES6 module syntax; the file content is eval-ed, so #include does not work. Code that does not parse is refused with its line number before anything reaches PixInsight.',
   inputSchema: {
     type: 'object',
-    properties: { path: { type: 'string', description: 'Absolute path to the PJSR source file.' } },
+    properties: {
+      path: { type: 'string', description: 'Absolute path to the PJSR source file.' },
+      async: ASYNC_PARAM,
+    },
     required: ['path'],
   },
   async handler(api, input) {
-    const code = readSource(input.path, 'path');
-    return runChecked(api, [{ name: path.basename(input.path), text: code }]);
+    if (input.async) return NO_JOBS;
+    return runChecked(api, pjsrParts('run_pjsr_file', input));
   },
 };
 
@@ -166,21 +196,58 @@ const runPjsr = {
     properties: {
       code: { type: 'string', description: 'PJSR code. The value of the last expression is returned.' },
       include: { type: 'array', items: { type: 'string' }, description: 'Absolute paths of PJSR source files whose contents run before `code`, in this order, in the same scope, so functions they define can be called from `code`.' },
+      async: ASYNC_PARAM,
     },
     required: ['code'],
   },
   async handler(api, input) {
-    const includes = input.include ?? [];
-    if (!Array.isArray(includes)) throw new Error('run_pjsr: "include" must be an array of absolute paths');
-    const parts = includes.map((f) => ({ name: path.basename(f), text: readSource(f, 'include') }));
-    parts.push({ name: 'code', text: String(input.code) });
-    return runChecked(api, parts);
+    if (input.async) return NO_JOBS;
+    return runChecked(api, pjsrParts('run_pjsr', input));
   },
 };
 
+// PixelMath runs with truncate off, so the out-of-range samples can be counted, then the image is
+// truncated to [0,1] exactly as PixelMath's own truncation would: the pixels end up the same, and the
+// result says how much was clipped (PixInsight clamps without a word otherwise). Only a floating-point
+// image can hold values outside [0,1]; an integer image is clamped when written and reports none.
+const CLIP_REPORT_PJSR = `
+function __clipReport(v) {
+  var img = v.image, W = img.width, H = img.height, n = W * H, out = [], any = false;
+  for (var c = 0; c < img.numberOfChannels; c++) {
+    img.selectedChannel = c;
+    var mn = img.minimum(), mx = img.maximum(), lo = 0, hi = 0;
+    if (mn < 0 || mx > 1) {
+      any = true;
+      for (var y = 0; y < H; y += 256) {
+        var h = Math.min(256, H - y), b = new Float32Array(W * h);
+        img.getSamples(b, new Rect(0, y, W, y + h), c);
+        for (var i = 0; i < b.length; i++) { var s = b[i]; if (s < 0) lo++; else if (s > 1) hi++; }
+      }
+    }
+    out.push({ below: lo / n, above: hi / n, min: mn, max: mx });
+  }
+  img.resetSelections();
+  if (any) { v.beginProcess(); v.image.truncate(0, 1); v.endProcess(); }
+  return out;
+}`;
+
+// clipText(channels) -> one sentence on what truncation removed, per channel.
+export function clipText(channels) {
+  if (!Array.isArray(channels) || !channels.length) return '';
+  const names = channels.length === 3 ? ['R', 'G', 'B'] : channels.map((_, i) => (channels.length === 1 ? 'K' : `ch${i}`));
+  const pct = (x) => `${(100 * x).toFixed(4)}%`;
+  const hit = channels.map((c, i) => ({ ...c, name: names[i] })).filter((c) => c.below > 0 || c.above > 0);
+  if (!hit.length) return ' No sample fell outside [0,1].';
+  return ' Truncated to [0,1]: ' + hit.map((c) => `${c.name} ${pct(c.below)} below 0 (min ${Number(c.min).toPrecision(4)}), ${pct(c.above)} above 1 (max ${Number(c.max).toPrecision(4)})`).join('; ') + '.';
+}
+
+function parseClip(r) {
+  try { return JSON.parse(String(r.result ?? r.outputs?.consoleOutput ?? '')); } catch { return null; }
+}
+
 const runPixelmath = {
   name: 'run_pixelmath',
-  description: 'Run an arbitrary PixelMath expression in place on a view. RULES: (1) NO pow() — use exp(exponent*ln(base)). (2) Channel access is $T[0] for R, $T[1] for G, $T[2] for B — NOT $T.R or $T.B. (3) For other images use viewId[0], viewId[1], viewId[2].',
+  description: 'Run an arbitrary PixelMath expression in place on a view. The result is truncated to [0,1]; the reply gives, per channel, the fraction of samples that were below 0 or above 1 before truncation, and their min and max. RULES: (1) NO pow() — use exp(exponent*ln(base)). (2) Channel access is $T[0] for R, $T[1] for G, $T[2] for B — NOT $T.R or $T.B. (3) For other images use viewId[0], viewId[1], viewId[2].',
   inputSchema: {
     type: 'object',
     properties: {
@@ -199,20 +266,23 @@ const runPixelmath = {
       P.useSingleExpression = ${useSingle};
       ${input.symbols ? `P.symbols = ${q(input.symbols)};` : ''}
       P.use64BitWorkingImage = true;
-      P.truncate = true; P.truncateLower = 0; P.truncateUpper = 1;
+      P.truncate = false; P.rescale = false;
       P.createNewImage = false;
-      if (!P.executeOn(ImageWindow.windowById(${q(input.view_id)}).mainView)) throw new Error('PixelMath did not run');
+      var __v = ImageWindow.windowById(${q(input.view_id)}).mainView;
+      if (!P.executeOn(__v)) throw new Error('PixelMath did not run');
+      ${CLIP_REPORT_PJSR}
+      JSON.stringify(__clipReport(__v));
     `);
     if (pmResult.status === 'error') {
       return { isError: true, text: `PixelMath FAILED: ${pmResult.error?.message ?? JSON.stringify(pmResult.error)}` };
     }
-    return { text: 'PixelMath applied.' };
+    return { text: 'PixelMath applied.' + clipText(parseClip(pmResult)) };
   },
 };
 
 const pixelmathNewImage = {
   name: 'pixelmath_new_image',
-  description: 'Run PixelMath to create a NEW image from expressions that reference other open views by id. Color "rgb" takes red/green/blue expressions; color "gray" takes a single expression. View ids used inside expressions must be simple identifiers (rename_view renames a view). No pow() — use exp(exponent*ln(base)) or the ^ operator.',
+  description: 'Run PixelMath to create a NEW image from expressions that reference other open views by id. Color "rgb" takes red/green/blue expressions; color "gray" takes a single expression. The new image is truncated to [0,1]; the reply gives, per channel, the fraction of samples that were below 0 or above 1 before truncation. When size_from has an astrometric solution it is copied onto the new image (same geometry), unless copy_astrometric_solution is false. View ids used inside expressions must be simple identifiers (rename_view renames a view). No pow() — use exp(exponent*ln(base)) or the ^ operator.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -224,6 +294,7 @@ const pixelmathNewImage = {
       blue: { type: 'string', description: 'Blue channel expression (color "rgb")' },
       expression: { type: 'string', description: 'Single expression for color "gray"' },
       symbols: { type: 'string', description: 'PixelMath symbols; constants only, e.g. "k=0.3". Symbols cannot hold images: write image expressions inline.' },
+      copy_astrometric_solution: { type: 'boolean', default: true, description: 'Copy size_from\'s astrometric solution onto the new image when it has one' },
     },
     required: ['output_id', 'size_from', 'color'],
   },
@@ -231,6 +302,7 @@ const pixelmathNewImage = {
     const rgb = input.color === 'rgb';
     if (rgb && !(input.red && input.green && input.blue)) return { isError: true, text: 'color "rgb" needs red, green and blue expressions.' };
     if (!rgb && !input.expression) return { isError: true, text: 'color "gray" needs expression.' };
+    const copySol = input.copy_astrometric_solution === undefined ? true : bool(input.copy_astrometric_solution, true, 'copy_astrometric_solution');
     const r = await api.pjsr(`
       var __w = ImageWindow.windowById(${q(input.size_from)}); if (__w.isNull) throw new Error('View not found: ' + ${q(input.size_from)});
       var img = __w.mainView.image;
@@ -239,16 +311,23 @@ const pixelmathNewImage = {
         ? `P.useSingleExpression = false; P.expression = ${q(input.red)}; P.expression1 = ${q(input.green)}; P.expression2 = ${q(input.blue)};`
         : `P.useSingleExpression = true; P.expression = ${q(input.expression)};`}
       ${input.symbols ? `P.symbols = ${q(input.symbols)};` : ''}
-      P.use64BitWorkingImage = true; P.truncate = true; P.truncateLower = 0; P.truncateUpper = 1;
+      P.use64BitWorkingImage = true; P.truncate = false; P.rescale = false;
       P.createNewImage = true; P.showNewImage = true; P.newImageId = ${q(input.output_id)};
       P.newImageWidth = img.width; P.newImageHeight = img.height;
       P.newImageColorSpace = ${rgb ? 'PixelMath.RGB' : 'PixelMath.Gray'};
       P.newImageSampleFormat = PixelMath.f32;
       P.executeGlobal();
-      if (ImageWindow.windowById(${q(input.output_id)}).isNull) throw new Error('PixelMath produced no image; check the expressions and that every view id exists.');
+      var __nw = ImageWindow.windowById(${q(input.output_id)});
+      if (__nw.isNull) throw new Error('PixelMath produced no image; check the expressions and that every view id exists.');
+      var __sol = false;
+      if (${copySol ? 'true' : 'false'} && __w.hasAstrometricSolution && __nw.mainView.image.width === img.width && __nw.mainView.image.height === img.height) { __nw.copyAstrometricSolution(__w); __sol = __nw.hasAstrometricSolution; }
+      ${CLIP_REPORT_PJSR}
+      JSON.stringify({ clip: __clipReport(__nw.mainView), solution: __sol });
     `);
     if (r.status === 'error') throw new Error(r.error?.message || JSON.stringify(r.error));
-    return { text: `Created ${input.output_id} (${input.color}).` };
+    const info = parseClip(r) || {};
+    const sol = info.solution ? ` Astrometric solution copied from ${input.size_from}.` : '';
+    return { text: `Created ${input.output_id} (${input.color}).${sol}${clipText(info.clip)}` };
   },
 };
 

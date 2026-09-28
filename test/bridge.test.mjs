@@ -217,8 +217,9 @@ test('a single failed liveness check alone does not crash (needs two consecutive
 test('the bridge exposes only what the server uses (no checkMemory, ping, detectNewImages or a shared console buffer)', async () => {
   const dir = await makeBridgeDir();
   const ctx = createBridge(baseOpts(dir));
-  // setBridgeDir: the server re-points the bridge when the workspace changes.
-  assert.deepEqual(Object.keys(ctx).sort(), ['listImages', 'log', 'pjsr', 'send', 'setBridgeDir']);
+  // setBridgeDir: the server re-points the bridge when the workspace changes. cancel/status: job control
+  // (cancel_job, job_status) and the hidden-dialog hint.
+  assert.deepEqual(Object.keys(ctx).sort(), ['cancel', 'listImages', 'log', 'pjsr', 'send', 'setBridgeDir', 'status']);
 });
 
 test('a deliberate stop points at resume_bridge, not the nonexistent --resume --run-id flag', async () => {

@@ -2,6 +2,35 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.3.0
+
+**No more hidden dialogs or silent damage.**
+- `crop_image` with all margins 0 runs nothing. Crop, and every process run through `run_process` or a declared process tool, runs with `noGUIMessages`, so PixInsight writes confirmations to the Process Console instead of opening a dialog that stalls the bridge. `crop_image` says when the crop removed the astrometric solution.
+- New `ensure_dir` creates a folder inside `output/` or the state folder. `export_image`, `save_preview` and `align_to_reference` fail, naming the path, when `saveAs` returns false.
+- `run_pixelmath` and `pixelmath_new_image` report, per channel, the fraction of samples truncated to [0,1]. `pixelmath_new_image` copies `size_from`'s astrometric solution.
+- `run_mgc` refuses a mono image without `filter`.
+- `get_image_stats` reports the fractions of samples at exactly 0 and exactly 1.
+
+**Bridge and jobs.**
+- A "busy" heartbeat left by a PixInsight that was killed, restarted, or whose command finished is cleared on the next call, and PixInsight and the watcher start again. It used to block every call until the file was removed by hand. `doctor` reports the heartbeat.
+- A watcher launch into a PixInsight the connector just started is sent again if it does not come up within 10 s.
+- `run_pjsr` and `run_pjsr_file` take `async`: the code runs as a job, `job_status` reports its state (queued, running, ending, done, failed, cancelled, stopped), progress and result, and `cancel_job` stops it at its next `processEvents()`. Scripts can call `mcpProgress(text)` and `mcpCancelRequested()`.
+- Calls that use PixInsight are refused while a job runs, or while a `run_wbpp` run is alive in the workspace.
+- A call that shows no progress for 90 s (`PIXINSIGHT_CONNECTOR_DIALOG_HINT_MS`) says PixInsight may be showing a dialog.
+
+**New tools.**
+- `set_stf`: sets PixInsight's auto-stretch as a view's STF, or copies another view's.
+- `save_preview` takes an optional STF (`stf_from`, or `stf_m` with `stf_c0`), a `crop` rectangle and a `downsample` factor.
+- `catalog_stars`: local Gaia stars over a solved view, one search per call, with a supplement list for the brightest stars.
+- `compare_images`: per-channel max, mean and p99 absolute difference, and the out-of-range fractions.
+- `resample_image`: IntegerResample, or Resample by a factor or to a reference size, with no confirmation dialog; it reports plate-solution loss.
+- `align_files`: StarAlignment file to file, in batches of at most 20, with a matrix-only mode that keeps no image files.
+- `run_wbpp` / `wbpp_status`: headless WBPP in a separate PixInsight instance, passing only the given parameters. Dark optimization and drizzle go through a pipeline-builder script.
+
+**Other changes.**
+- `run_plate_solve` retries with wider scale seeds and reports solved scale ÷ expected scale (the failed seeds' console errors do not flag a solve that succeeded). An image that already has a solution is now really re-solved.
+- `docs/troubleshooting.md` covers stale heartbeats, jobs and cancel limits, hidden dialogs, plate-solution loss, `saveAs` error boxes, StarAlignment batching and matrix mode, Gaia, WBPP, and PJSR pitfalls.
+
 ## 2.2.3
 
 - `QUICKSTART.md`: from a new computer to a processed LRGB image. What to install, copyable prompts to install

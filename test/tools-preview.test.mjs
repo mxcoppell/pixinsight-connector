@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createFakeBridge, apiFrom } from './fake-bridge.mjs';
-import { tools } from '../src/tools/preview.mjs';
+import { tools, previewOptions } from '../src/tools/preview.mjs';
 
 const byName = Object.fromEntries(tools.map((t) => [t.name, t]));
 
@@ -98,4 +98,50 @@ test('save_preview hands PixInsight the preview path as toPixPath makes it: a Wi
   } finally {
     rmSync(base, { recursive: true, force: true });
   }
+});
+
+function previewApi(t, replies = ['ok', JSON.stringify({ median: 0.2 })]) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'pixinsight-connector-preview-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const fb = createFakeBridge({ replies });
+  return { dir, emitted: fb.emitted, api: apiFrom(fb.ctx, { workspace: { dir, scratchDir: dir } }) };
+}
+
+test('save_preview bakes the STF of another view, crops and downsamples, in that order', async (t) => {
+  const { api, emitted } = previewApi(t);
+  const out = await byName.save_preview.handler(api, { view_id: 'N_hue', label: 'cmp', stf_from: 'F_hue', crop: [100, 50, 500, 450], downsample: 2 });
+  const js = emitted[0];
+  assert.match(js, /ImageWindow\.windowById\("F_hue"\)/);
+  assert.match(js, /var crop = \[100,50,500,450\];/);
+  assert.match(js, /var scale = 1 \/ 2;/);
+  assert.ok(js.indexOf('new Crop') < js.indexOf('new HistogramTransformation'), 'crop, then stretch');
+  assert.ok(js.indexOf('new HistogramTransformation') < js.indexOf('new Resample'), 'stretch, then resample');
+  assert.match(js, /C\.noGUIMessages = true/);
+  assert.match(js, /if \(!saved\) throw new Error/);
+  assert.match(out.text, /Preview saved: cmp \(crop \[100,50,500,450\], downsample 2, STF of F_hue\)/);
+});
+
+test('save_preview bakes a linked STF given as stf_m and stf_c0', async (t) => {
+  const { api, emitted } = previewApi(t);
+  await byName.save_preview.handler(api, { view_id: 'L', label: 'x', stf_m: 0.02, stf_c0: 0.001 });
+  assert.match(emitted[0], /var stfRows = \[\[0\.02,0\.001,1,0,1\],\[0\.02,0\.001,1,0,1\],\[0\.02,0\.001,1,0,1\]\];/);
+});
+
+test('save_preview without options keeps its old behaviour: no crop, no stretch, at most 2048 px', async (t) => {
+  const { api, emitted } = previewApi(t);
+  await byName.save_preview.handler(api, { view_id: 'L', label: 'plain' });
+  assert.match(emitted[0], /var crop = null;/);
+  assert.match(emitted[0], /var stfRows = null;/);
+  assert.match(emitted[0], /Math\.min\(1, 2048 \/ Math\.max\(w, h\)\)/);
+});
+
+test('previewOptions refuses bad or conflicting options before anything reaches PixInsight', () => {
+  assert.throws(() => previewOptions({ stf_from: 'A', stf_m: 0.1 }), /not both/);
+  assert.throws(() => previewOptions({ stf_m: 0.1 }), /stf_c0/);
+  assert.throws(() => previewOptions({ stf_m: 1, stf_c0: 0 }), /stf_m/);
+  assert.throws(() => previewOptions({ stf_from: 'a b' }), /view id/);
+  assert.throws(() => previewOptions({ crop: [10, 10, 5, 20] }), /crop/);
+  assert.throws(() => previewOptions({ crop: [0, 0, 10.5, 20] }), /crop/);
+  assert.throws(() => previewOptions({ downsample: 0.5 }), /downsample/);
+  assert.deepEqual(previewOptions({}), { stf: null, crop: null, downsample: null });
 });

@@ -758,9 +758,9 @@ test('a real loaded pack merges into tools/list alongside core tools, is callabl
 
   const catalog = assembleCatalog({ core, packs, packTools, resetBridge: () => {}, log() {} });
 
-  // core + the four server-defined tools, plus the one pack tool -- proves the merge is additive,
+  // core + the six server-defined tools, plus the one pack tool -- proves the merge is additive,
   // not just "the pack tool is somewhere in there".
-  assert.equal(catalog.definitions.length, core.definitions.length + 4 + packTools.length);
+  assert.equal(catalog.definitions.length, core.definitions.length + 6 + packTools.length);
 
   const { ctx } = createFakeBridge();
   // fixture_stretch declares a `view_id` input, which server.mjs's missingViews pre-check (applied
@@ -907,7 +907,7 @@ test('a tool with additionalProperties: false runs when every argument is listed
 test('no core tool outside the folded set changes: only the folded tools set additionalProperties: false', async () => {
   const catalog = await buildCoreCatalog();
   const closed = catalog.definitions.filter((d) => d.inputSchema?.additionalProperties === false).map((d) => d.name).sort();
-  assert.equal(closed.length, 30, closed.join(', '));
+  assert.equal(closed.length, 32, closed.join(', ')); // + set_stf and ensure_dir (2.3)
   assert.ok(!closed.includes('run_process') && !closed.includes('get_image_stats'));
 });
 
@@ -978,6 +978,16 @@ test('a successful plate solve is not promoted to an error by ImageSolver\'s ben
   assert.notEqual(result.isError, true);
   assert.match(result.content[0].text, /Plate solve OK/);
   assert.ok(result.content.some((c) => c.text.includes(NO_DB_LINE)), 'the console line is still reported, just not promoted');
+});
+
+test('a plate solve that succeeded at a wider scale seed is not promoted to an error by the failed seeds\' console lines', async () => {
+  const catalog = await catalogWithResumeBridge();
+  const retried = '@@SOLVE@@' + JSON.stringify({ solved: true, seconds: 25, summary: ['Control points: 745'], attempts: [{ seedScale: 0.78, solved: false }, { seedScale: 0.39, solved: false }, { seedScale: 1.55, solved: true }] });
+  const lines = ['*** Error: The image could not be aligned with the reference star field.', GAIA_WARNING, '*** Error: Unable to find an initial linear transformation.'];
+  const dispatch = plateSolveDispatch(catalog, retried, lines);
+  const result = await dispatch({ params: { name: 'run_plate_solve', arguments: solveArgs } }, { sendNotification: async () => {} });
+  assert.notEqual(result.isError, true);
+  assert.match(result.content[0].text, /Plate solve OK/);
 });
 
 test('a plate solve that failed is still an error, benign line or not', async () => {

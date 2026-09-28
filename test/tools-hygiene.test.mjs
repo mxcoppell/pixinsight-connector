@@ -55,9 +55,12 @@ test('readXisfHeader lives once, in the module scan_workspace actually runs', as
 // export_image is (resolveExportPath); add it here only after checking which.
 const WRITE_SITE = /\bsaveAs\(|\bwriteFile(?:Sync)?\(|\bwriteText\w*\(|\boutputDirectory\s*=|\bmkdir(?:Sync)?\(|\brmSync\(|\bunlinkSync\(|\bcopyFile(?:Sync)?\(|\brename(?:Sync)?\(|\bcreateWriteStream\(|\bappendFile(?:Sync)?\(|\bFile\.(?:write|create|copy|move|remove)\w*\(/g;
 const EXPECTED_WRITE_SITES = {
+  'align.mjs': ['outputDirectory =', 'mkdirSync(', 'rmSync('], // align_files: resolveExportPath's folder, or scratchDir/align_files (matrix_only, removed)
+  'catalog.mjs': ['mkdirSync(', 'writeFileSync('], // catalog_stars: scratchDir/catalog
+  'wbpp.mjs': ['outputDirectory=', 'mkdirSync(', 'mkdirSync(', 'writeFileSync(', 'writeFileSync(', 'writeFileSync(', 'writeFileSync('], // run_wbpp: scratchDir/wbpp run records; WBPP writes resolveExportPath's folder
   'astrometry.mjs': ['File.createDirectory('], // run_plate_solve: scratchDir/tmp_platesolve (ImageSolver's star lists)
   'channels.mjs': ['mkdirSync(', 'File.remove(', 'saveAs(', 'outputDirectory ='], // align_to_reference: scratchDir/tmp_align
-  'images.mjs': ['mkdirSync(', 'File.remove(', 'saveAs('], // export_image: resolveExportPath's file
+  'images.mjs': ['mkdirSync(', 'File.remove(', 'saveAs(', 'mkdirSync('], // export_image: resolveExportPath's file; ensure_dir: resolveExportPath's folder
   'preview.mjs': ['mkdirSync(', 'rmSync(', 'File.remove(', 'saveAs('], // save_preview: scratchDir/previews
 };
 
@@ -79,4 +82,5 @@ test('core tools write only under api.workspace.scratchDir, except export_image 
   const images = await readFile('src/tools/images.mjs', 'utf8');
   assert.match(images, /const file = resolved\.path;\n\s*fs\.mkdirSync\(path\.dirname\(file\), \{ recursive: true \}\);/);
   assert.equal(images.match(/saveAs\(\$\{q\(toPixPath\(file\)\)\}/g)?.length, 1, 'export_image saves to the resolved file');
+  assert.match(images, /const resolved = resolveExportPath\(String\(input\.path\), \{ outputDir, stateDir \}\);[\s\S]*fs\.mkdirSync\(resolved\.path, \{ recursive: true \}\);/, 'ensure_dir creates only the resolved folder');
 });

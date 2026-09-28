@@ -89,7 +89,7 @@ test('names which candidate path matched, so a wrong guess is diagnosable', asyn
 // Additional coverage.
 // ---------------------------------------------------------------------------
 
-test('emits all 13 checks in the documented order', async () => {
+test('emits all 14 checks in the documented order', async () => {
   const r = await runDoctor({ platform: null, probe: { isRunning: async () => null }, packs: [] });
   assert.deepEqual(r.checks.map((c) => c.name), [
     'node',
@@ -99,6 +99,7 @@ test('emits all 13 checks in the documented order', async () => {
     'pixinsight-running',
     'watcher',
     'workspace',
+    'heartbeat',
     'call-logs',
     'launch-mutex',
     'packs',
@@ -444,4 +445,26 @@ test('pixinsight-mcp: finds the npm .cmd shim on Windows through a Path variable
   const c = check(r, 'pixinsight-mcp');
   assert.equal(c.ok, false);
   assert.match(c.detail, /~\/AppData\/Roaming\/npm\/pixinsight-mcp\.cmd/);
+});
+
+test('heartbeat check: a "busy" beat left by a PixInsight that is not running is named as cleared on the next call; a long busy one as a long process or a dialog', async (t) => {
+  const home = await tmpHome(t);
+  const ws = path.join(home, 'Target');
+  const bridge = path.join(ws, 'agentic', 'bridge', 'rig');
+  await fsp.mkdir(bridge, { recursive: true });
+  const T = 1_800_000_000_000;
+  const run = async (beat, running) => {
+    await fsp.writeFile(path.join(bridge, 'heartbeat'), beat);
+    return check(await runDoctor({ platform: null, homeDir: home, cwd: ws, machineId: () => 'rig', now: () => T, probe: { isRunning: async () => running } }), 'heartbeat');
+  };
+  const dead = await run(`busy run_script abc-1 ${T - 90_000}`, false);
+  assert.equal(dead.ok, true);
+  assert.match(dead.detail, /run_script, command abc-1, 90 s old.*no longer running.*clears it on the next tool call/);
+  const long = await run(`busy run_script abc-2 ${T - 30 * 60_000}`, true);
+  assert.match(long.detail, /busy with run_script, command abc-2 for 30 min: a long process, or a dialog/);
+  assert.match((await run(`idle ${T - 1000}`, true)).detail, /A watcher is running \(idle, 1 s old\)/);
+  assert.match((await run(`idle ${T - 600_000}`, true)).detail, /no watcher is running now/);
+  await fsp.rm(path.join(bridge, 'heartbeat'));
+  const none = check(await runDoctor({ platform: null, homeDir: home, cwd: ws, machineId: () => 'rig', probe: { isRunning: async () => true } }), 'heartbeat');
+  assert.match(none.detail, /No watcher heartbeat/);
 });

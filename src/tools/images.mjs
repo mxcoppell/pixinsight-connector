@@ -6,6 +6,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { toPixPath } from '../platform.mjs';
 import { isInside, realPathOf } from '../workspace.mjs';
+import { clampFractions } from './compare.mjs';
 
 const q = (s) => JSON.stringify(String(s));
 
@@ -212,7 +213,7 @@ const restoreFromClone = {
 
 const cropImage = {
   name: 'crop_image',
-  description: 'Crop pixels off the edges of an image, in place. Amounts are pixels to remove from each side.',
+  description: 'Crop pixels off the edges of an image, in place. Amounts are pixels to remove from each side. All four amounts 0 (or omitted) runs nothing and leaves the image, and its astrometric solution, unchanged. Crop runs with noGUIMessages, so PixInsight writes its warnings to the Process Console instead of opening a confirmation dialog. A crop deletes the image\'s astrometric solution (PixInsight behaviour); the result says when one was removed.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -226,14 +227,25 @@ const cropImage = {
   },
   async handler(api, input) {
     const m = { left: num(input.left, 0), top: num(input.top, 0), right: num(input.right, 0), bottom: num(input.bottom, 0) };
-    const out = await run(api, `${need(input.view_id)}
+    if (m.left === 0 && m.top === 0 && m.right === 0 && m.bottom === 0) {
+      const size = await run(api, `${need(input.view_id)}
+        var im = __w.mainView.image;
+        return im.width + 'x' + im.height;`);
+      return { text: `Nothing cropped from ${input.view_id}: all margins are 0, so no process ran. Size: ${size}` };
+    }
+    const raw = await run(api, `${need(input.view_id)}
+      var hadSol = __w.hasAstrometricSolution;
       var P = new Crop;
       P.mode = Crop.AbsolutePixels;
       P.leftMargin = ${-m.left}; P.topMargin = ${-m.top}; P.rightMargin = ${-m.right}; P.bottomMargin = ${-m.bottom};
+      if (P.noGUIMessages !== undefined) P.noGUIMessages = true;
       __run(P, __w.mainView);
-      var im = ImageWindow.windowById(${q(input.view_id)}).mainView.image;
-      return im.width + 'x' + im.height;`);
-    return { text: `Cropped ${input.view_id}. New size: ${out}` };
+      var w2 = ImageWindow.windowById(${q(input.view_id)}), im = w2.mainView.image;
+      return JSON.stringify({ size: im.width + 'x' + im.height, hadSol: hadSol, hasSol: w2.hasAstrometricSolution });`);
+    let out;
+    try { out = JSON.parse(String(raw)); } catch { out = { size: String(raw ?? '') }; }
+    const sol = out.hadSol && !out.hasSol ? ' The crop removed the astrometric solution: the image has none now.' : '';
+    return { text: `Cropped ${input.view_id}. New size: ${out.size}.${sol}` };
   },
 };
 
@@ -268,7 +280,7 @@ const getImageDimensions = {
 
 const getImageStats = {
   name: 'get_image_stats',
-  description: 'Get image statistics: median, MAD, min, max, per-channel medians.',
+  description: 'Get image statistics: median, MAD, min, max, per-channel medians, and per channel the fraction of samples at exactly 0 and at exactly 1 (clampFractions).',
   inputSchema: {
     type: 'object',
     properties: { view_id: { type: 'string', description: 'PixInsight view ID' } },
@@ -276,6 +288,7 @@ const getImageStats = {
   },
   async handler(api, input) {
     const stats = await api.stats(input.view_id);
+    stats.clampFractions = await clampFractions(api, input.view_id);
     return { text: JSON.stringify(stats, null, 2) };
   },
 };
@@ -347,7 +360,7 @@ const exportImage = {
         }
         ${conv ? `var S = new SampleFormatConversion; S.format = ${conv}; S.executeOn(c.mainView);` : ''}
         if (File.exists(${q(toPixPath(file))})) File.remove(${q(toPixPath(file))});
-        c.saveAs(${q(toPixPath(file))}, false, false, false, false);
+        if (!c.saveAs(${q(toPixPath(file))}, false, false, false, false)) throw new Error('PixInsight did not write ' + ${q(toPixPath(file))} + ' (saveAs returned false)');
       } finally { c.forceClose(); }
       if (!File.exists(${q(toPixPath(file))})) throw new Error('File was not written');
       return String(new FileInfo(${q(toPixPath(file))}).size);`);
@@ -355,7 +368,37 @@ const exportImage = {
   },
 };
 
+// ensure_dir: create a folder (and its parents) inside the folders a session writes to, so a save
+// from PJSR never meets a missing folder. PixInsight answers a save into a missing folder with a modal
+// API-error box that no saveAs argument suppresses.
+const ensureDir = {
+  name: 'ensure_dir',
+  description: 'Create a folder, with any missing parents, inside the workspace\'s output folder or state folder. A relative path is resolved under <workspace>/output; an absolute one must lie inside <workspace>/output or the state folder (<workspace>/agentic by default), and a path anywhere else is refused. An existing folder is left as it is. Returns the absolute path.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      path: { type: 'string', description: 'Folder path: relative to <workspace>/output, or absolute inside <workspace>/output or the state folder' },
+    },
+    required: ['path'],
+  },
+  async handler(api, input) {
+    const outputDir = api.workspace.outputDir;
+    const stateDir = path.dirname(api.workspace.scratchDir);
+    const resolved = resolveExportPath(String(input.path), { outputDir, stateDir });
+    if (resolved.error) return { isError: true, text: resolved.error.replace('file_path', 'path') };
+    const existed = fs.existsSync(resolved.path);
+    if (existed && !fs.statSync(resolved.path).isDirectory()) return { isError: true, text: `${resolved.path} exists and is not a folder.` };
+    fs.mkdirSync(resolved.path, { recursive: true });
+    // Checked again now that it exists: a link created in the meantime cannot lead out.
+    const again = resolveExportPath(resolved.path, { outputDir, stateDir });
+    if (again.error) return { isError: true, text: again.error.replace('file_path', 'path') };
+    return { text: `${existed ? 'Folder exists' : 'Created'}: ${resolved.path}` };
+  },
+};
+
 export const tools = [
+  ensureDir,
   openImage,
   closeImage,
   listOpenImages,

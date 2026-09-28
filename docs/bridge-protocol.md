@@ -25,8 +25,12 @@ In the workspace's state dir (`<workspace>/agentic/`, or `PIXINSIGHT_CONNECTOR_S
     commands/     # the connector writes {id}.tmp and renames it to {id}.json; the watcher claims it ({id}.running), runs it, deletes it
     quarantine/   # stale command files moved aside (by the connector or the watcher); never run
     results/      # the watcher writes {id}.json here; the connector reads and deletes it
-    heartbeat     # watcher liveness: `starting <ms>`, `idle <ms>` or `busy <tool> <ms>` (ms since epoch),
-                  # replaced via heartbeat.tmp + move where the platform allows
+    heartbeat     # watcher liveness: `starting <ms>`, `idle <ms>` or `busy <tool> <command id> <ms>` (ms since
+                  # epoch; watchers before 0.8.0 wrote `busy <tool> <ms>`), replaced via heartbeat.tmp + move
+                  # where the platform allows. `busy` is refreshed (at most every 2 s) whenever the running
+                  # script calls processEvents()
+    cancel/       # {id}: written by cancel_job for a running command; the watcher stops the script at its next processEvents()
+    progress/     # {id}: `<ms> <text>`, the running command's latest mcpProgress() call; read by job_status
     last-stop     # why the watcher last stopped: `<reason> | <ms>` (`idle for 8s`, `abort requested`, `shutdown file`)
     watcher.json  # written at watcher start, before the first heartbeat: { watcherVersion, pixinsightVersion, startedAt }
     launches/     # one linger ticket per connector launch ({ lingerMs, at, pid }); each watcher takes one
@@ -178,9 +182,14 @@ Before each command, `ensureWatcher()` (`src/bridge.mjs`):
 
 1. returns at once if the watcher is alive: `heartbeat` is `idle` and under 5 s old, `starting` and under
    60 s old (written once at start-up, before UI work that cannot refresh it; not alive if PixInsight is
-   confirmed not running or started after the beat), or `busy` (a running
-   command blocks the loop, so a `busy` beat stays alive however old — unless it is over 30 s old and
-   predates the PixInsight process, in which case it is a leftover from a crash and is removed). An empty
+   confirmed not running or started after the beat), or `busy` (a native process call cannot refresh the
+   beat, so a `busy` beat stays alive however old — unless, once it is at least 5 s old, PixInsight is
+   confirmed not running, or was started after the beat, or the command the beat names has neither a
+   `{id}.json` nor a `{id}.running` in `commands/` for more than 15 s; any of these makes it a leftover,
+   which is removed (an event `stale heartbeat` in the call log) so that PixInsight and the watcher are
+   started again. These checks run at most every 5 s per dir; a probe that cannot answer never condemns a
+   beat. Before 2.3.0 only "started after the beat" was checked, so a beat left by a PixInsight that was
+   killed and not yet started again blocked autostart). An empty
    or unparseable heartbeat (a read that landed mid-rewrite) is read again up to 3 times, 25 ms apart,
    before it counts as no watcher;
 2. throws `BridgeAbortError` if `last-stop` says `abort requested` or `shutdown file` and was written after
@@ -202,7 +211,10 @@ Before each command, `ensureWatcher()` (`src/bridge.mjs`):
 6. writes a linger ticket to `launches/` (the linger, default 8000, `PIXINSIGHT_CONNECTOR_LINGER_MS`), runs
    `PixInsight -x=<materialized watcher.js>` and waits up to 30 s for a heartbeat. If `last-stop` shows
    that a watcher started and exited on idle after this launch without its heartbeat being seen, the
-   watcher is launched again (at most twice more). The 30 s is per launch, so with both relaunches the
+   watcher is launched again (at most twice more). When this connector has just started PixInsight itself,
+   a launch with no heartbeat written since it after 10 s is sent again (at most three times): a PixInsight
+   still initializing can drop a `-x` it receives, and a launch that was only queued runs later as a second
+   watcher that idles out. The 30 s is per launch, so with both relaunches the
    wait can reach about 90 s; an `abort requested`/`shutdown file` stop in that window
    is a `BridgeAbortError`. A timeout's message lists what was checked: launches, the last heartbeat seen,
    `last-stop` relative to the launch, and whether PixInsight was running. When PixInsight is running and
@@ -367,3 +379,38 @@ Watcher:
   waiting. Launched by hand from the Script menu (no fresh ticket), it stays until Pause/Abort or the
   `shutdown` file; since its bridge dir is baked in, run the script from `<state>/watcher/…` of the target
   you work in.
+
+## Jobs and cancellation
+
+`run_pjsr` and `run_pjsr_file` with `async: true` send their code as one ordinary `run_script` command
+and return a job id without waiting for the result (`src/jobs.mjs`, `src/server.mjs`). The command's send
+timeout is 12 h instead of 20 min. While a job runs, every tool call that would send a PixInsight command is
+refused at once with a message naming the job (the watcher runs one command at a time, and a call queued
+behind a long job would otherwise wait unanswered); `job_status`, `cancel_job`, `workspace_info`,
+`set_workspace` and `list_packs` still answer. Ordinary (non-job) calls that overlap queue in the watcher as
+before.
+
+`job_status` reads the job's state and, while it runs, the `busy` heartbeat (which command, and how long
+since the script last called `processEvents()`) and `progress/{id}`. Snippets report progress with
+`mcpProgress(text)` and can poll `mcpCancelRequested()`; both are globals of the watcher.
+
+`cancel_job`:
+- a job whose command no watcher has claimed yet: the connector deletes `commands/{id}.json`, and the job
+  ends `cancelled` without running;
+- a running job: the connector writes `cancel/{id}`. The watcher checks for it at most once a second, inside
+  `processEvents()`, and throws `MCP_CANCELLED`, which ends the script with an error result; the watcher
+  keeps serving (unlike Pause/Abort). A native process call in progress (one long process, a file save)
+  cannot be interrupted: the stop happens when it returns and the script next calls `processEvents()`, and
+  a script that never calls it runs to its end. Whatever the script changed before the stop stays changed.
+
+`cancel/{id}` and `progress/{id}` are removed by the watcher when the command ends and by the connector when
+its send settles.
+
+## Hidden dialogs
+
+A modal dialog (a geometry process asking to delete the astrometric solution, an API error box on a save
+into a missing folder) blocks the running command until someone clicks; nothing reaches the console. While a
+tool call has run for 90 s (`PIXINSIGHT_CONNECTOR_DIALOG_HINT_MS`, 0 turns it off) and the `busy` heartbeat
+has not been refreshed for as long, the progress keepalives and the call's result say that PixInsight may be
+showing a dialog. A native process can be as quiet, so this is a hint, never an error. A send timeout says
+the same.

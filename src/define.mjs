@@ -136,9 +136,13 @@ export function defineProcessTool(spec) {
     }
 
     const viewIdLiteral = JSON.stringify(input.view_id);
+    // noGUIMessages routes a process's confirmations and warnings to the Process Console instead of a
+    // modal dialog that stalls the bridge; set on every instance that has it, unless a param sets it.
+    const setsNoGui = paramEntries.some(([key, def]) => def.pjsr === 'noGUIMessages' && input[key] !== undefined);
     const lines = [
       `var P = new ${process};`,
       ...assignments,
+      ...(setsNoGui ? [] : ['if (P.noGUIMessages !== undefined) P.noGUIMessages = true;']),
       `var __w = ImageWindow.windowById(${viewIdLiteral});`,
       `if (__w.isNull) throw new Error('View not found: ' + ${viewIdLiteral});`,
       `__run(P, __w.mainView);`,

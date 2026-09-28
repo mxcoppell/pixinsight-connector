@@ -106,7 +106,7 @@ const alignToReference = {
         if (w.isNull) throw new Error('View not found: ' + ${q(viewId)});
         var p = ${q(toPixPath(filePath))};
         if (File.exists(p)) File.remove(p);
-        w.saveAs(p, false, false, false, false);
+        if (!w.saveAs(p, false, false, false, false)) throw new Error('PixInsight did not write ' + p + ' (saveAs returned false)');
         if (w.mainView.id !== ${q(viewId)}) w.mainView.id = ${q(viewId)};
       `);
       if (saveR.status === 'error') return { isError: true, text: `Failed to save ${viewId}: ${saveR.error?.message}` };

@@ -30,7 +30,7 @@ var COMMANDS_DIR = BRIDGE_DIR + "/commands";
 var RESULTS_DIR = BRIDGE_DIR + "/results";
 var QUARANTINE_DIR = BRIDGE_DIR + "/quarantine";
 var POLL_INTERVAL_MS = 1000;
-var WATCHER_VERSION = "0.7.0";
+var WATCHER_VERSION = "0.8.0";
 // Written once at start-up, before the first heartbeat: which watcher and which PixInsight this is.
 // The connector puts it in its call log (a "watcher start" event) for debugging.
 var WATCHER_INFO_FILE = BRIDGE_DIR + "/watcher.json";
@@ -60,11 +60,22 @@ var LAUNCH_TICKET_TTL_MS = 24 * 60 * 60 * 1000;
 var LAUNCH_TICKET_WRITE_GRACE_MS = 60 * 1000;
 
 // Liveness marker for on-demand launching. "starting <ms>" is written once at
-// startup; "idle <ms>" is refreshed while polling; "busy <tool> <ms>" is written
-// before a command starts (a running command blocks the loop, so a stale "busy"
-// still means alive).
+// startup; "idle <ms>" is refreshed while polling; "busy <tool> <command id> <ms>" is
+// written before a command starts and refreshed (at most every MCP_BUSY_BEAT_MS) each
+// time the running script calls processEvents(). A native process call cannot refresh
+// it, so an old "busy" beat still means alive unless the connector finds its
+// PixInsight gone or its command finished.
 var HEARTBEAT_FILE = BRIDGE_DIR + "/heartbeat";
 var HEARTBEAT_TMP = HEARTBEAT_FILE + ".tmp";
+var MCP_BUSY_BEAT_MS = 2000;
+// cancel/<id>: written by the connector's cancel_job; the running script stops at its next
+// processEvents() (checked at most every MCP_CANCEL_CHECK_MS). progress/<id>: "<ms> <text>", the
+// latest mcpProgress() call of the running command. Both are removed when the command ends.
+var CANCEL_DIR = BRIDGE_DIR + "/cancel";
+var PROGRESS_DIR = BRIDGE_DIR + "/progress";
+var MCP_CANCEL_CHECK_MS = 1000;
+// The command being run: { id, tool, lastBeat, lastCancelCheck }, null between commands.
+var MCP_CURRENT = null;
 // Whether File.move can replace the heartbeat in one step on this system (see writeHeartbeat).
 var MCP_ATOMIC_BEAT = true;
 
@@ -234,6 +245,43 @@ function mcpAbortableProcessEvents() {
    }
    // PixInsight greys the button after every process, including inside one snippet.
    if (!console.abortEnabled) console.abortEnabled = true;
+   if (MCP_CURRENT !== null) {
+      var t = Date.now();
+      if (t - MCP_CURRENT.lastBeat >= MCP_BUSY_BEAT_MS) {
+         MCP_CURRENT.lastBeat = t;
+         writeHeartbeat("busy " + MCP_CURRENT.tool + " " + MCP_CURRENT.id);
+      }
+      if (mcpCancelRequested()) {
+         throw new Error("MCP_CANCELLED: the command was cancelled (cancel_job)");
+      }
+   }
+}
+
+// Whether cancel_job asked the running command to stop (checked at most every MCP_CANCEL_CHECK_MS).
+// Snippets may call it to stop cleanly at a point of their choosing.
+function mcpCancelRequested() {
+   if (MCP_CURRENT === null) return false;
+   if (MCP_CURRENT.cancelled) return true;
+   var t = Date.now();
+   if (t - MCP_CURRENT.lastCancelCheck < MCP_CANCEL_CHECK_MS) return false;
+   MCP_CURRENT.lastCancelCheck = t;
+   try { MCP_CURRENT.cancelled = File.exists(CANCEL_DIR + "/" + MCP_CURRENT.id); } catch (e) {}
+   return MCP_CURRENT.cancelled === true;
+}
+
+// A running snippet's own progress line ("round 3 of 12"), readable by job_status while it runs.
+function mcpProgress(text) {
+   if (MCP_CURRENT === null) return;
+   try {
+      ensureDirectory(PROGRESS_DIR);
+      File.writeTextFile(PROGRESS_DIR + "/" + MCP_CURRENT.id, Date.now() + " " + String(text).substring(0, 500));
+   } catch (e) {}
+}
+
+function mcpEndCommand(id) {
+   MCP_CURRENT = null;
+   try { if (File.exists(CANCEL_DIR + "/" + id)) File.remove(CANCEL_DIR + "/" + id); } catch (e) {}
+   try { if (File.exists(PROGRESS_DIR + "/" + id)) File.remove(PROGRESS_DIR + "/" + id); } catch (e) {}
 }
 
 function mcpRunSnippet(processEvents, __mcpCode) {
@@ -420,7 +468,8 @@ function processNextCommand() {
    var claimedPath = mcpClaimCommand(filePath);
    var startTime = Date.now();
    var resultObj;
-   writeHeartbeat("busy " + command.tool);
+   MCP_CURRENT = { id: String(command.id), tool: String(command.tool), lastBeat: startTime, lastCancelCheck: 0, cancelled: false };
+   writeHeartbeat("busy " + command.tool + " " + command.id);
 
    try {
       console.writeln("[MCP Watcher] Executing: " + command.tool + " (id: " + command.id + ")");
@@ -460,6 +509,7 @@ function processNextCommand() {
       console.criticalln("[MCP Watcher] Failed to write result: " + mcpErrorText(e));
    }
 
+   mcpEndCommand(String(command.id));
    // Delete the claimed command file (remembered and skipped if it cannot be deleted).
    try { deleteFile(claimedPath); } catch (e) {}
    if (File.exists(claimedPath)) MCP_REFUSED[mcpRefusedKey(claimedPath)] = true;
