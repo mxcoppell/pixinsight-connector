@@ -3,9 +3,9 @@
 // v0-pipeline:agents/llm/mcp-interactive.mjs, generalized to one dispatch path for every
 // tool (core, pack, or server-defined) instead of a hand-maintained OWN_TOOLS
 // split — the server-defined tools are workspace_info, set_workspace,
-// resume_bridge and list_packs (see assembleCatalog/serve below), and none
-// takes view-shaped input, so the view-existence pre-check is a harmless no-op
-// for all four.
+// resume_bridge, list_packs, job_status and cancel_job (see assembleCatalog/serve
+// below), and none takes view-shaped input, so the view-existence pre-check is a
+// harmless no-op for all six.
 //
 // Preserved verbatim from the legacy server (see its own line references,
 // noted below, for anyone diffing): the missingViews pre-check, the 10s
@@ -38,6 +38,8 @@ import { materializeWatcher as realMaterializeWatcher, spaceInPathNote } from '.
 import { buildCoreCatalog } from './tools/index.mjs';
 import { buildApi } from './api.mjs';
 import { loadPacks, mergeCatalogs } from './packs.mjs';
+import { createJobs, PixInsightBusyError } from './jobs.mjs';
+import { pjsrParts, syntaxProblem } from './tools/execute.mjs';
 
 // Real filesystem primitives for materializeWatcher (src/runtime.mjs), adapted to the shape it
 // expects (readFile returning a string, not a Buffer; mkdir recursive so a fresh version
@@ -53,6 +55,29 @@ const realFs = {
 };
 
 const KEEPALIVE_MS = 10_000;
+
+// Hidden-dialog hint. A modal dialog (a geometry process asking to delete the astrometric solution,
+// an API error box) blocks the running command silently: it returns only when someone clicks.
+// Seen: 71 s and 95 s for calls that normally take about a second. A running script refreshes its
+// "busy" heartbeat when it calls processEvents(); a native process call does not, so a quiet
+// heartbeat is ambiguous and the text only says "may". While a call has run this long and the
+// heartbeat has been quiet this long, keepalives and the result carry the hint.
+// PIXINSIGHT_CONNECTOR_DIALOG_HINT_MS overrides it (0 turns it off).
+const DEFAULT_DIALOG_HINT_MS = 90_000;
+const DIALOG_POLL_MS = 15_000;
+export function dialogHintMs(env) {
+  const v = env?.PIXINSIGHT_CONNECTOR_DIALOG_HINT_MS;
+  if (v === undefined || v === '') return DEFAULT_DIALOG_HINT_MS;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : DEFAULT_DIALOG_HINT_MS;
+}
+const dialogHintText = (quietMs) =>
+  `PixInsight has shown no sign of progress for ${Math.round(quietMs / 1000)} s. A native process can be that quiet, ` +
+  'but so is a dialog waiting for a click: ask the user to look at PixInsight.';
+
+// The tool call in progress ({ key, tool }), for the one-command gate (src/jobs.mjs): each call
+// runs inside its own store, and buildRuntimeApi()'s pjsr/listImages enter the gate with it.
+const callScope = new AsyncLocalStorage();
 
 // The PixInsight console errors of the tool call in progress. Each call's handler runs inside its
 // own store, and buildRuntimeApi()'s pjsr appends that pjsr result's consoleErrors to it, so
@@ -163,7 +188,9 @@ function workspaceSentence(api) {
 // API v1 object every handler receives -- core, pack, or server-defined -- built by exactly one
 // src/api.mjs buildApi() call (see buildRuntimeApi() below); it carries no dispatch-internal
 // fields.
-export function createServer({ catalog, api, takeConsoleErrors, callLog = NO_CALL_LOG }) {
+// `control` (optional, buildRuntimeApi()'s): the job registry and gate (`jobs`), `status()` (the
+// watcher's heartbeat) and `dialogHintMs`. Without it there is no gate and no dialog hint.
+export function createServer({ catalog, api, takeConsoleErrors, callLog = NO_CALL_LOG, control = null }) {
   const { definitions, handlers } = catalog;
   const definitionsByName = new Map(definitions.map((d) => [d.name, d]));
   const getConsoleErrors = takeConsoleErrors ?? (() => []);
@@ -190,26 +217,41 @@ export function createServer({ catalog, api, takeConsoleErrors, callLog = NO_CAL
   server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const call = callLog.startCall(request.params.name, request.params.arguments);
     const thrown = { error: undefined };
+    const scope = { key: Symbol(request.params.name), tool: request.params.name };
     let result;
     try {
-      result = await callLog.run(call, () => dispatch(request, extra, thrown));
+      result = await callScope.run(scope, () => callLog.run(call, () => dispatch(request, extra, thrown, scope)));
       return result;
     } finally {
+      control?.jobs?.leave(scope);
       callLog.endCall(call, result, thrown.error);
     }
   });
 
   // `thrown.error` is set to an error the tool threw, which is then mapped to an error result.
-  async function dispatch(request, extra, thrown) {
+  async function dispatch(request, extra, thrown, scope) {
     const { name, arguments: args = {} } = request.params;
     const handler = handlers.get(name);
     if (!handler) return text(`Unknown tool: ${name}`, true);
+
+    // Hidden-dialog watch: only while this call is the one holding PixInsight.
+    const hintMs = control?.dialogHintMs ?? 0;
+    const callStart = Date.now();
+    let quietMs = 0;
+    const monitor = !(hintMs > 0 && control?.status) ? null : setInterval(async () => {
+      if (Date.now() - callStart < hintMs || !control.jobs?.usesPixInsight(scope)) return;
+      let st = null;
+      try { st = await control.status(); } catch { st = null; }
+      const hb = st?.heartbeat;
+      if (hb?.state === 'busy' && hb.ageMs >= hintMs) quietMs = hb.ageMs;
+    }, control?.dialogPollMs ?? DIALOG_POLL_MS);
 
     // Hosts such as OpenCode drop a call after ~60s of silence; progress notifications keep it open.
     const token = request.params._meta?.progressToken;
     let ticks = 0;
     const keepalive = token === undefined ? null : setInterval(() => {
-      extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress: ++ticks, message: `${name} running` } }).catch(() => {});
+      const message = quietMs ? `${name} running. ${dialogHintText(quietMs)}` : `${name} running`;
+      extra.sendNotification({ method: 'notifications/progress', params: { progressToken: token, progress: ++ticks, message } }).catch(() => {});
     }, KEEPALIVE_MS);
 
     try {
@@ -253,9 +295,11 @@ export function createServer({ catalog, api, takeConsoleErrors, callLog = NO_CAL
           out.isError = true;
         }
       }
+      if (quietMs) out.content.push({ type: 'text', text: `[${name} ran ${Math.round((Date.now() - callStart) / 1000)} s. ${dialogHintText(quietMs)}]` });
       return out;
     } catch (e) {
       thrown.error = e;
+      if (e instanceof PixInsightBusyError || e?.name === 'PixInsightBusyError') return text(e.message, true);
       if (e instanceof BridgeAbortError || e?.name === 'BridgeAbortError') {
         return text('STOPPED BY USER: Pause/Abort was pressed in PixInsight. Do not retry or continue the plan. Tell the user, and call resume_bridge only after they tell you to continue.', true);
       }
@@ -274,6 +318,7 @@ export function createServer({ catalog, api, takeConsoleErrors, callLog = NO_CAL
       return text(`Error: ${e?.message ?? e}`, true);
     } finally {
       if (keepalive) clearInterval(keepalive);
+      if (monitor) clearInterval(monitor);
     }
   }
 
@@ -318,7 +363,10 @@ function readConnectorVersion() {
 // `callLog` (src/call-log.mjs) receives every bridge command and bridge event (createBridge's trace)
 // and a `bridge reset` event from resetBridge. `machineId()` is this machine's id (from its
 // hostname) for the call log's session record and workspace_info, null if it cannot be had.
-export function buildRuntimeApi({ platform, platformError = null, probe, workspace, log, connectorVersion, callLog = NO_CALL_LOG, deps = {} }) {
+export function buildRuntimeApi({ platform, platformError = null, probe, workspace, log, connectorVersion, callLog = NO_CALL_LOG, deps = {}, env = process.env }) {
+  // One owner of PixInsight at a time: a tool call from its first command until it returns, or a job
+  // (src/jobs.mjs). Server state, handed to createServer and the job tools as `control`.
+  const jobs = deps.jobs ?? createJobs();
   const materializeWatcher = deps.materializeWatcher ?? realMaterializeWatcher;
   const createBridge = deps.createBridge ?? realCreateBridge;
   // This machine's subdir of the workspace bridge dir: a workspace on network storage may be used
@@ -399,12 +447,16 @@ export function buildRuntimeApi({ platform, platformError = null, probe, workspa
   // hands the result's console errors to the tool call in progress (callConsole above).
   const lazyCtx = {
     pjsr: async (code) => {
+      jobs.enter(callScope.getStore());
       const r = await viaBridge((b) => b.pjsr(code));
       const lines = r?.outputs?.consoleErrors;
       if (Array.isArray(lines) && lines.length) callConsole.getStore()?.push(...lines);
       return r;
     },
-    listImages: async () => viaBridge((b) => b.listImages()),
+    listImages: async () => {
+      jobs.enter(callScope.getStore());
+      return viaBridge((b) => b.listImages());
+    },
     log,
   };
 
@@ -416,7 +468,28 @@ export function buildRuntimeApi({ platform, platformError = null, probe, workspa
   const machineId = () => {
     try { return (machineIdCache ??= resolveMachineId()); } catch { return null; }
   };
-  return { api, resetBridge, machineId };
+  // Job control and bridge state for the server (createServer's `control`) and the job tools. Reads
+  // only a bridge that already exists: asking for status never builds one.
+  const existingBridge = async () => (bridgePromise ? bridgePromise.catch(() => null) : null);
+  const control = {
+    jobs,
+    dialogHintMs: dialogHintMs(env),
+    status: async (cmdId) => {
+      const b = await existingBridge();
+      return b?.status ? b.status(cmdId) : null;
+    },
+    cancel: async (cmdId) => {
+      const b = await existingBridge();
+      return b?.cancel ? b.cancel(cmdId) : { state: 'unknown' };
+    },
+    // Starts code as a job: the call that asked returns at once; the job owns PixInsight until it settles.
+    startPjsrJob: (tool, code) => jobs.start({
+      tool,
+      run: (hooks) => viaBridge((b) => b.pjsr(code, { job: true, onSent: hooks.onSent })),
+      onCancel: (cmdId) => { control.cancel(cmdId).catch?.(() => {}); },
+    }),
+  };
+  return { api, resetBridge, machineId, control };
 }
 
 // resume_bridge: server-lifecycle behavior, not a PixInsight capability, so it is defined here
@@ -521,27 +594,119 @@ export function setWorkspaceTool(workspace, callLog = NO_CALL_LOG, machineId = (
   };
 }
 
-// assembleCatalog({ core, packs, packTools, resetBridge, workspace, callLog?, machineId?, osPlatform?, log }) -> { definitions, handlers, shadowed }
+// job_status / cancel_job: server-defined, like resume_bridge, because jobs are server state
+// (src/jobs.mjs) that the Pack API does not carry. A job is started by run_pjsr / run_pjsr_file with
+// `async` (asyncPjsrHandler below).
+const secsOf = (ms) => Math.max(0, Math.round(ms / 1000));
+const NO_JOB_CONTROL = { isError: true, text: 'This server was assembled without job control, so there are no jobs.' };
+
+async function jobReport(control, job) {
+  const now = Date.now();
+  const out = { job_id: job.id, tool: job.tool, state: job.state, elapsed_s: secsOf((job.finishedAt ?? now) - job.startedAt) };
+  if (job.finishedAt === null) {
+    let st = null;
+    try { st = await control.status(job.cmdId); } catch { st = null; }
+    const hb = st?.heartbeat;
+    const mine = hb?.state === 'busy' && hb.cmdId && hb.cmdId === job.cmdId;
+    out.state = mine ? 'running' : 'queued';
+    if (job.cancelRequested) out.cancel_requested = true;
+    if (mine) out.last_sign_of_progress_s = secsOf(hb.ageMs);
+    if (st?.progress) out.progress = { text: st.progress.text, age_s: st.progress.at ? secsOf(now - st.progress.at) : null };
+    const hint = control.dialogHintMs;
+    if (mine && hint > 0 && hb.ageMs >= hint) out.note = dialogHintText(hb.ageMs);
+  } else {
+    if (job.result !== null) out.result = job.result;
+    if (job.error !== null) out.error = job.error;
+    if (job.consoleErrors?.length) out.console_errors = job.consoleErrors;
+  }
+  return out;
+}
+
+export function jobStatusTool(control) {
+  return {
+    name: 'job_status',
+    description:
+      'Report on a job started by run_pjsr or run_pjsr_file with `async`: its state (queued, running, done, failed, cancelled, stopped), ' +
+      'elapsed time, seconds since the running script last called processEvents(), its latest mcpProgress() text, and, once it has ended, ' +
+      'its result or error and PixInsight console errors. Without job_id: the running job, else the most recent one. Read-only; ' +
+      'it does not use PixInsight, so it answers while a job runs.',
+    inputSchema: { type: 'object', properties: { job_id: { type: 'string', description: 'The id run_pjsr returned. Omit for the running or most recent job.' } } },
+    async handler(_api, input) {
+      if (!control) return NO_JOB_CONTROL;
+      const job = input?.job_id ? control.jobs.get(input.job_id) : control.jobs.active() ?? control.jobs.latest();
+      if (!job) return { isError: true, text: input?.job_id ? `No job ${input.job_id} (finished jobs are kept for the last 20).` : 'No job has been started in this session.' };
+      return { text: JSON.stringify(await jobReport(control, job), null, 2) };
+    },
+  };
+}
+
+export function cancelJobTool(control) {
+  return {
+    name: 'cancel_job',
+    description:
+      'Stop a job started by run_pjsr or run_pjsr_file with `async`. A job PixInsight has not started yet is removed and never runs. ' +
+      'A running job is stopped at its next processEvents() call, where an error with MCP_CANCELLED ends the script; a native process call ' +
+      '(a single long process, a file save) cannot be interrupted, so the stop takes effect after it returns, and what the script already ' +
+      'changed stays changed. Without job_id: the running job. job_status reports the outcome.',
+    inputSchema: { type: 'object', properties: { job_id: { type: 'string', description: 'The id run_pjsr returned. Omit for the running job.' } } },
+    async handler(_api, input) {
+      if (!control) return NO_JOB_CONTROL;
+      const job = input?.job_id ? control.jobs.get(input.job_id) : control.jobs.active();
+      if (!job) return { isError: true, text: input?.job_id ? `No job ${input.job_id}.` : 'No job is running.' };
+      if (job.finishedAt !== null) return { text: `Job ${job.id} already ended: ${job.state}. Nothing was cancelled.` };
+      job.cancelRequested = true;
+      if (!job.cmdId) return { text: `Cancel requested for job ${job.id}; it had not been sent to PixInsight yet and will not run.` };
+      const r = await control.cancel(job.cmdId);
+      if (r.state === 'signalled') {
+        return { text: `Cancel sent to job ${job.id}, which is running: it stops at its next processEvents() call, after any native process call in progress returns. job_status reports when it has ended.` };
+      }
+      return { text: `Cancel requested for job ${job.id}; PixInsight had not started it, so it is taken off the queue and does not run.` };
+    },
+  };
+}
+
+// run_pjsr / run_pjsr_file with `async`: the same source preparation and syntax check as the core
+// tool, then the code starts as a job and the call returns its id. Without `async`, the core handler.
+function asyncPjsrHandler(tool, coreHandler, control) {
+  return async (api, input) => {
+    if (!input?.async) return coreHandler(api, input);
+    const parts = pjsrParts(tool, input);
+    const problem = syntaxProblem(parts);
+    if (problem) return { isError: true, text: `${problem}. Nothing was sent to PixInsight.` };
+    const job = control.startPjsrJob(tool, parts.map((p) => p.text).join('\n'));
+    return { text: `Started job ${job.id} (${tool}). It runs in PixInsight in the background; job_status reports on it and returns its result, cancel_job stops it. Other calls that use PixInsight are refused until it ends.` };
+  };
+}
+
+// assembleCatalog({ core, packs, packTools, resetBridge, workspace, callLog?, machineId?, osPlatform?, log, control? }) -> { definitions, handlers, shadowed }
 //
 // The one composition of the served catalog: the auto-discovered core catalog, plus the
 // server-defined tools (workspace_info, set_workspace, resume_bridge, list_packs), with loaded pack
 // tools merged over it by
 // src/packs.mjs's mergeCatalogs() (packs may shadow core tools, never reserved ones). serve() and
 // the server integration tests both call this, so the tests exercise the real composition.
-export function assembleCatalog({ core, packs, packTools, resetBridge, workspace, callLog = NO_CALL_LOG, machineId = () => null, osPlatform = null, log = () => {} }) {
+export function assembleCatalog({ core, packs, packTools, resetBridge, workspace, callLog = NO_CALL_LOG, machineId = () => null, osPlatform = null, log = () => {}, control = null }) {
   let shadowed = [];
   const serverTools = [
     workspaceInfoTool(workspace, callLog, machineId, osPlatform),
     setWorkspaceTool(workspace, callLog, machineId, osPlatform),
     resumeBridgeTool(resetBridge),
     listPacksTool(packs, () => shadowed),
+    jobStatusTool(control),
+    cancelJobTool(control),
   ];
+  const coreHandlers = new Map(core.handlers);
+  if (control) {
+    for (const tool of ['run_pjsr', 'run_pjsr_file']) {
+      if (coreHandlers.has(tool)) coreHandlers.set(tool, asyncPjsrHandler(tool, coreHandlers.get(tool), control));
+    }
+  }
   const withServerTools = {
     definitions: [
       ...core.definitions,
       ...serverTools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
     ],
-    handlers: new Map([...core.handlers, ...serverTools.map((t) => [t.name, t.handler])]),
+    handlers: new Map([...coreHandlers, ...serverTools.map((t) => [t.name, t.handler])]),
   };
   const catalog = mergeCatalogs({ core: withServerTools, packTools, log });
   shadowed = catalog.shadowed;
@@ -606,7 +771,7 @@ export async function serve() {
     connectorVersion,
     callLog,
   });
-  const { api, resetBridge, machineId } = runtime;
+  const { api, resetBridge, machineId, control } = runtime;
 
   // Reading pack modules (readdir + dynamic import) here is real disk I/O, but it is READ-ONLY and
   // happens once, before server.connect() below even starts accepting requests -- never a write,
@@ -618,9 +783,9 @@ export async function serve() {
   ]);
   loadedPacks = packs;
 
-  const catalog = assembleCatalog({ core, packs, packTools, resetBridge, workspace, callLog, machineId, osPlatform: process.platform, log });
+  const catalog = assembleCatalog({ core, packs, packTools, resetBridge, workspace, callLog, machineId, osPlatform: process.platform, log, control });
 
-  const server = createServer({ catalog, api, callLog });
+  const server = createServer({ catalog, api, callLog, control });
   await server.connect(new StdioServerTransport());
 
   exitOnStop({ proc: process, stdin: process.stdin });

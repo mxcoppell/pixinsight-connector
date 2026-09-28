@@ -251,6 +251,42 @@ async function watcherCheck(platform, workspace, id, homeDir, osName, watcherFs)
   }
 }
 
+// This workspace's watcher heartbeat (<bridge dir>/<machine id>/heartbeat): informational, never a
+// failure. A "busy" beat left by a PixInsight that is no longer running used to block every call until
+// the file was removed by hand; since 2.3.0 the connector clears it on the next call, and this check
+// says when one is there. A beat busy for a long time with PixInsight running is a long process, or a
+// dialog waiting for a click.
+const LONG_BUSY_MS = 10 * 60_000;
+async function heartbeatCheck(workspace, id, probe, fsImpl, now) {
+  const s = workspace.snapshot();
+  if (!s.usable) return { name: 'heartbeat', ok: true, detail: 'No usable workspace, so no watcher heartbeat to read.' };
+  const file = path.join(s.bridgeDir, id, 'heartbeat');
+  let raw;
+  try { raw = String(fsImpl.readFileSync(file, 'utf-8')).trim(); } catch {
+    return { name: 'heartbeat', ok: true, detail: 'No watcher heartbeat: no watcher is running for this workspace (one is launched on the next tool call).' };
+  }
+  const parts = raw.split(' ');
+  const state = parts[0];
+  const ts = Number(parts[parts.length - 1]);
+  const age = Number.isFinite(ts) ? Math.max(0, now() - ts) : null;
+  const ageText = age === null ? 'of unknown age' : age < 120_000 ? `${Math.round(age / 1000)} s old` : `${Math.round(age / 60_000)} min old`;
+  if (state !== 'busy') {
+    const fresh = age !== null && age < 5000;
+    return { name: 'heartbeat', ok: true, detail: fresh ? `A watcher is running (${state}, ${ageText}).` : `Last heartbeat "${state}", ${ageText}: no watcher is running now (it exits when idle).` };
+  }
+  const tool = parts.length >= 3 ? parts[1] : 'a command';
+  const cmd = parts.length >= 4 ? `, command ${parts[2]}` : '';
+  let running = null;
+  try { running = await probe.isRunning(); } catch { running = null; }
+  if (running === false) {
+    return { name: 'heartbeat', ok: true, detail: `A "busy" heartbeat (${tool}${cmd}, ${ageText}) was left by a PixInsight that is no longer running. The connector clears it on the next tool call and starts PixInsight again.` };
+  }
+  if (age !== null && age >= LONG_BUSY_MS) {
+    return { name: 'heartbeat', ok: true, detail: `The watcher has been busy with ${tool}${cmd} for ${ageText.replace(' old', '')}: a long process, or a dialog in PixInsight waiting for a click.` };
+  }
+  return { name: 'heartbeat', ok: true, detail: `The watcher is busy with ${tool}${cmd} (heartbeat ${ageText}).` };
+}
+
 const SOURCE_TEXT = {
   cwd: 'the launch folder',
   PIXINSIGHT_CONNECTOR_WORKSPACE: 'from PIXINSIGHT_CONNECTOR_WORKSPACE',
@@ -394,6 +430,8 @@ function pathExistsCheck(name, label, filePath, platform, homeDir, missingHint) 
  * @param {() => string} [opts.machineId] - this machine's id; defaults to the one from its hostname.
  * @param {typeof import('node:net')} [opts.net] - for the 'launch-mutex' check; defaults to node:net.
  * @param {(p: string) => boolean} [opts.existsSync] - for the 'pixinsight-mcp' check; defaults to fs.existsSync.
+ * @param {{readFileSync: Function}} [opts.bridgeFs] - reads the 'heartbeat' check's file; defaults to node:fs.
+ * @param {() => number} [opts.now] - clock for the heartbeat's age; defaults to Date.now.
  * @returns {Promise<{ok: boolean, checks: Array<{name:string, ok:boolean, detail:string, hint?:string}>}>}
  */
 export async function runDoctor(opts = {}) {
@@ -415,6 +453,7 @@ export async function runDoctor(opts = {}) {
     await pixinsightRunningCheck(probe, env),
     await watcherCheck(platform, workspace, id, homeDir, osName, opts.watcherFs),
     workspaceCheck(workspace, homeDir, id),
+    await heartbeatCheck(workspace, id, probe, opts.bridgeFs ?? fs, opts.now ?? Date.now),
     callLogsCheck(workspace, env, homeDir, fs),
     await launchMutexCheck(env, opts.net),
     packsCheck(packs, homeDir),
