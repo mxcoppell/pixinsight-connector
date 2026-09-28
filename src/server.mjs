@@ -40,6 +40,7 @@ import { buildApi } from './api.mjs';
 import { loadPacks, mergeCatalogs } from './packs.mjs';
 import { createJobs, PixInsightBusyError } from './jobs.mjs';
 import { pjsrParts, syntaxProblem } from './tools/execute.mjs';
+import { activeWbppRun } from './tools/wbpp.mjs';
 
 // Real filesystem primitives for materializeWatcher (src/runtime.mjs), adapted to the shape it
 // expects (readFile returning a string, not a Buffer; mkdir recursive so a fresh version
@@ -379,6 +380,14 @@ export function buildRuntimeApi({ platform, platformError = null, probe, workspa
   const used = typeof workspace?.require === 'function'
     ? Object.freeze({ ...workspace, require: () => { callLog.touch(); return workspace.require(); } })
     : workspace;
+  // A run_wbpp run (a separate headless PixInsight) owns PixInsight too: while one is alive in this
+  // workspace, calls that use the GUI instance are refused, like calls during a job.
+  const wbppRunning = deps.activeWbppRun ?? (() => activeWbppRun({ scratchDir: (used.require ? used.require() : workspacePaths(used.dir)).scratchDir }));
+  function refuseDuringWbpp() {
+    let r = null;
+    try { r = wbppRunning(); } catch { r = null; }
+    if (r) throw new PixInsightBusyError(`PixInsight is busy: WBPP run ${r.runId} (pid ${r.pid}) is running in a separate PixInsight instance. Calls that use PixInsight are refused until it ends; wbpp_status reports it.`);
+  }
   let machineIdCache = null;
   const machineSubdir = (bridgeDir) => path.join(bridgeDir, machineIdCache ??= resolveMachineId());
   const bridgeDirNow = () => machineSubdir((used.require ? used.require() : workspacePaths(used.dir)).bridgeDir);
@@ -447,6 +456,7 @@ export function buildRuntimeApi({ platform, platformError = null, probe, workspa
   // hands the result's console errors to the tool call in progress (callConsole above).
   const lazyCtx = {
     pjsr: async (code) => {
+      refuseDuringWbpp();
       jobs.enter(callScope.getStore());
       const r = await viaBridge((b) => b.pjsr(code));
       const lines = r?.outputs?.consoleErrors;
@@ -454,6 +464,7 @@ export function buildRuntimeApi({ platform, platformError = null, probe, workspa
       return r;
     },
     listImages: async () => {
+      refuseDuringWbpp();
       jobs.enter(callScope.getStore());
       return viaBridge((b) => b.listImages());
     },
@@ -483,11 +494,11 @@ export function buildRuntimeApi({ platform, platformError = null, probe, workspa
       return b?.cancel ? b.cancel(cmdId) : { state: 'unknown' };
     },
     // Starts code as a job: the call that asked returns at once; the job owns PixInsight until it settles.
-    startPjsrJob: (tool, code) => jobs.start({
+    startPjsrJob: (tool, code) => (refuseDuringWbpp(), jobs.start({
       tool,
       run: (hooks) => viaBridge((b) => b.pjsr(code, { job: true, onSent: hooks.onSent })),
       onCancel: (cmdId) => { control.cancel(cmdId).catch?.(() => {}); },
-    }),
+    })),
   };
   return { api, resetBridge, machineId, control };
 }

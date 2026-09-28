@@ -471,3 +471,14 @@ test('wbpp_status reports running, then finished with masters, per-group counts 
   const bad = await f.wbppStatus.handler(f.api, { run_id: '../x' });
   assert.equal(bad.isError, true);
 });
+
+test('activeWbppRun: the run without an exit record whose pid is alive; null when none', async () => {
+  const { activeWbppRun } = await import('../src/tools/wbpp.mjs');
+  const files = { '/s/wbpp/a/run.json': '{"pid": 1}', '/s/wbpp/a/exit.json': '{"code": 0}', '/s/wbpp/b/run.json': '{"pid": 2}', '/s/wbpp/c/run.json': '{"pid": 3}' };
+  const norm = (p) => p.split('\\').join('/');
+  const fs = { readdirSync: (d) => { if (norm(d) !== '/s/wbpp') throw new Error('ENOENT'); return ['a', 'b', 'c']; },
+    readFileSync: (f) => { const v = files[norm(f)]; if (v === undefined) throw new Error('ENOENT'); return v; } };
+  assert.deepEqual(activeWbppRun({ scratchDir: '/s', fs, isPidAlive: (pid) => pid === 3 }), { runId: 'c', pid: 3 });
+  assert.equal(activeWbppRun({ scratchDir: '/s', fs, isPidAlive: () => false }), null);
+  assert.equal(activeWbppRun({ scratchDir: '/none', fs, isPidAlive: () => true }), null);
+});

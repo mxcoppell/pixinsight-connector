@@ -233,3 +233,18 @@ test('a quick call gets no dialog hint, and PIXINSIGHT_CONNECTOR_DIALOG_HINT_MS=
     await s.close();
   }
 });
+
+test('while a run_wbpp run is alive, calls that use PixInsight and new jobs are refused naming the run; other tools still answer', async () => {
+  const bridge = fakeBridge();
+  const workspace = workspaceAt(R('/w'));
+  let run = { runId: 'wbpp-1', pid: 4242 };
+  const deps = { machineId: () => 'rig', materializeWatcher: async () => ({ path: '/w/watcher.js', warnings: [] }), createBridge: () => bridge, activeWbppRun: () => run };
+  const runtime = buildRuntimeApi({ platform: { piBin: '/fake' }, probe: {}, workspace, log() {}, connectorVersion: '0', deps, env: {} });
+  await assert.rejects(runtime.api.pjsr('1'), (e) => e instanceof PixInsightBusyError && /wbpp-1/.test(e.message) && /wbpp_status/.test(e.message));
+  await assert.rejects(runtime.api.listImages(), PixInsightBusyError);
+  assert.throws(() => runtime.control.startPjsrJob('run_pjsr', '1'), PixInsightBusyError);
+  assert.equal(bridge.sent.length, 0);
+  run = null;
+  const r = await runtime.api.pjsr('2');
+  assert.match(String(r.result ?? JSON.stringify(r)), /ran 2/);
+});

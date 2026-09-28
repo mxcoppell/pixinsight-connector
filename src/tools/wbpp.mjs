@@ -153,6 +153,19 @@ function runStatus(fs, isPidAlive, dir) {
   return { run, exit, state: exit ? 'finished' : alive ? 'running' : 'ended (no exit record)' };
 }
 
+// The run_wbpp run still alive in this workspace ({ runId, pid }), or null. The server refuses calls
+// that use the GUI PixInsight while one runs, so two PixInsight jobs never run at once.
+export function activeWbppRun({ scratchDir, fs = nodeFs, isPidAlive = nodeIsPidAlive }) {
+  const dir = path.join(scratchDir, 'wbpp');
+  let ids;
+  try { ids = fs.readdirSync(dir); } catch { return null; }
+  for (const id of ids) {
+    const st = runStatus(fs, isPidAlive, path.join(dir, id));
+    if (st?.state === 'running') return { runId: id, pid: st.run.pid };
+  }
+  return null;
+}
+
 function listXisf(fs, dir) {
   try { return fs.readdirSync(dir).filter((f) => /\.xisf$/i.test(f)).sort(); } catch { return []; }
 }
