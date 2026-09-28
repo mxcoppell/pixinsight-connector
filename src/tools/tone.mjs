@@ -369,6 +369,63 @@ const autoStretch = {
 };
 
 // ---------------------------------------------------------------------------
+// set_stf
+// ---------------------------------------------------------------------------
+
+// A view's STF (View.stf) is four rows [m, c0, c1, r0, r1]: R, G, B (or K for mono) and the luminance row.
+// stfRows(params, isColor) -> those rows from autoStretchParams' [c0, m, c1] triples.
+export function stfRows(params) {
+  const row = ([c0, m, c1]) => [m, c0, c1, 0, 1];
+  const rows = params.length === 1 ? [row(params[0]), row(params[0]), row(params[0])] : params.map(row);
+  return [...rows, [0.5, 0, 1, 0, 1]];
+}
+
+const setStf = {
+  name: 'set_stf',
+  description: 'Set the ScreenTransferFunction (display stretch) of a view without changing its pixels, and return it as rows [m, c0, c1, r0, r1] for R, G, B (K for mono) and luminance. Either copy the STF of from_view_id, or compute PixInsight\'s auto-stretch exactly as auto_stretch does (per channel sigma = 1.4826 × MAD; c0 = median + shadows_clipping × sigma; m = MTF(target_bg, median − c0); linked: one set of values for R, G and B from the mean clipping point and mean median). An STF is stored with the view and saved in XISF files.',
+  inputSchema: {
+    type: 'object',
+    additionalProperties: false,
+    properties: {
+      view_id: { type: 'string', description: 'View whose STF is set' },
+      from_view_id: { type: 'string', description: 'Copy this view\'s STF instead of computing one; target_bg, shadows_clipping and linked are then not allowed' },
+      target_bg: { type: 'number', default: 0.25, description: 'Target background level, strictly between 0 and 1' },
+      shadows_clipping: { type: 'number', default: -2.8, description: 'Clipping point relative to the median, in units of sigma = 1.4826 × MAD' },
+      linked: { type: 'boolean', default: false, description: 'Colour images: true computes one set of values for R, G and B; false one per channel. Ignored for mono images' },
+    },
+    required: ['view_id'],
+  },
+  async handler(api, input) {
+    if (input.from_view_id !== undefined) {
+      const extra = ['target_bg', 'shadows_clipping', 'linked'].filter((k) => input[k] !== undefined);
+      if (extra.length) throw new Error(`set_stf: from_view_id copies an STF; ${extra.join(', ')} cannot be given with it`);
+      const rows = await pjsrJson(api, `
+        var s = ImageWindow.windowById(${q(input.from_view_id)}); if (s.isNull) throw new Error('View not found: ' + ${q(input.from_view_id)});
+        var d = ImageWindow.windowById(${q(input.view_id)}); if (d.isNull) throw new Error('View not found: ' + ${q(input.view_id)});
+        d.mainView.stf = s.mainView.stf;
+        JSON.stringify(d.mainView.stf);`, 'set_stf');
+      return { text: `STF of ${input.from_view_id} copied to ${input.view_id}: ${JSON.stringify(rows)}` };
+    }
+    const targetBg = num(input.target_bg, 0.25, 'target_bg');
+    if (!(targetBg > 0 && targetBg < 1)) throw new Error(`target_bg: expected a number in (0, 1), got ${targetBg}`);
+    const shadows = num(input.shadows_clipping, -2.8, 'shadows_clipping');
+    const linked = bool(input.linked, false, 'linked');
+    const stats = await api.stats(input.view_id);
+    const pc = stats.perChannel;
+    const channels = pc
+      ? ['R', 'G', 'B'].map((k) => ({ median: num(pc[k]?.median, undefined, `stats.${k}.median`), mad: num(pc[k]?.mad, undefined, `stats.${k}.mad`) }))
+      : [{ median: num(stats.median, undefined, 'stats.median'), mad: num(stats.mad, undefined, 'stats.mad') }];
+    const rows = stfRows(autoStretchParams({ channels, shadowsClipping: shadows, targetBackground: targetBg, linked }));
+    const r = await api.pjsr(`
+      var d = ImageWindow.windowById(${q(input.view_id)}); if (d.isNull) throw new Error('View not found: ' + ${q(input.view_id)});
+      d.mainView.stf = ${JSON.stringify(rows)};
+    `);
+    if (r.status === 'error') throw new Error(`set_stf failed: ${r.error?.message}`);
+    return { text: `STF set on ${input.view_id} (${pc ? (linked ? 'linked' : 'per channel') : 'mono'}, target_bg ${targetBg}, shadows_clipping ${shadows}): ${JSON.stringify(rows)}` };
+  },
+};
+
+// ---------------------------------------------------------------------------
 // continuous_clamp
 // ---------------------------------------------------------------------------
 
@@ -478,4 +535,4 @@ const continuousClamp = {
   },
 };
 
-export const tools = [robustMedianStretch, stretchStars, autoStretch, continuousClamp];
+export const tools = [robustMedianStretch, stretchStars, autoStretch, setStf, continuousClamp];

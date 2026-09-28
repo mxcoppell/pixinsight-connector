@@ -907,7 +907,7 @@ test('a tool with additionalProperties: false runs when every argument is listed
 test('no core tool outside the folded set changes: only the folded tools set additionalProperties: false', async () => {
   const catalog = await buildCoreCatalog();
   const closed = catalog.definitions.filter((d) => d.inputSchema?.additionalProperties === false).map((d) => d.name).sort();
-  assert.equal(closed.length, 30, closed.join(', '));
+  assert.equal(closed.length, 32, closed.join(', ')); // + set_stf and ensure_dir (2.3)
   assert.ok(!closed.includes('run_process') && !closed.includes('get_image_stats'));
 });
 

@@ -16,3 +16,14 @@ Run `pixinsight-connector doctor` first: it checks the install, PixInsight, the 
 | A call runs far longer than usual, and its result or progress says PixInsight may be showing a dialog | Look at PixInsight: a modal dialog (for example a Crop asking to delete the astrometric solution, or an API error box after a save into a missing folder) waits for a click, and the command resumes after it. A long native process gives the same hint and needs nothing |
 | `PixInsight is busy with job …` | A job started with `run_pjsr` `async` is running; calls that use PixInsight are refused until it ends. `job_status` reports on it, `cancel_job` stops it |
 | `cancel_job` was called but the job keeps running | A running job stops at its next `processEvents()` call. A native process in progress cannot be interrupted, and a script that never calls `processEvents()` runs to its end; Pause/Abort in PixInsight stops the watcher itself |
+| `crop_image` or a `run_process` Crop/Resample says the astrometric solution was removed | Geometric processes (Crop, DynamicCrop, Resample, IntegerResample, Rotation, FastRotation, ChannelMatch) delete the solution; PixInsight has no option to keep it. The connector sets `noGUIMessages`, so the question goes to the Process Console instead of a dialog. `run_plate_solve` solves the image again |
+| A PJSR `saveAs` returns `false`, or opens "PixInsight API Error: … Invalid or nonexistent directory" | The target folder does not exist. The error box appears even when saveAs is told not to allow messages and cannot be caught with try/catch. `ensure_dir` creates the folder first; `export_image` and `save_preview` create theirs |
+| `run_pixelmath` reports samples truncated to [0,1] | PixInsight images hold [0,1]; values outside are clipped. A flux or gain above 1 is kept in a PixelMath expression or in JSON, never stored in an image |
+
+## PJSR pitfalls
+
+- Process enumerations live on the constructor: `SCNR.AverageNeutral`, `Crop.AbsolutePixels`. `SCNR.prototype.AverageNeutral` is undefined, and assigning it (for example `PixelMath.newImageColorSpace = PixelMath.prototype.RGB`) throws. `describe_process` lists a process's constants.
+- `UndoFlag_NoSwapFile` is not defined in PixInsight's V8 PJSR; call `beginProcess()` without flags.
+- `ImageWindow.saveAs(path, …)` with its allow-messages argument false silences format warnings only. A file-format error still opens a modal box, so create the folder before saving and check the boolean result.
+- A new image made by PixelMath (`createNewImage`) or `new ImageWindow` has no astrometric solution. `copyAstrometricSolution(sourceWindow)` copies one from a solved image of the same geometry; `pixelmath_new_image` does it for `size_from`.
+

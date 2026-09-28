@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import fs, { existsSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
+import fs, { existsSync, mkdtempSync, mkdirSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os, { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createFakeBridge, apiFrom } from './fake-bridge.mjs';
@@ -16,10 +16,10 @@ function imageFile(name) {
   return file;
 }
 
-test('images.mjs exports the 10 image lifecycle tools', () => {
+test('images.mjs exports the 11 image lifecycle tools', () => {
   assert.deepEqual(
     Object.keys(byName).sort(),
-    ['clone_image', 'close_image', 'crop_image', 'export_image', 'get_image_dimensions',
+    ['clone_image', 'close_image', 'crop_image', 'ensure_dir', 'export_image', 'get_image_dimensions',
       'get_image_stats', 'list_open_images', 'open_image', 'rename_view', 'restore_from_clone'].sort()
   );
 });
@@ -277,4 +277,78 @@ test('open_image hands PixInsight the path as toPixPath writes it (forward slash
   await byName.open_image.handler(apiFrom(ctx), { file_path: file });
   assert.ok(emitted[0].includes(JSON.stringify(toPixPath(file))), emitted[0]);
   assert.equal(toPixPath('C:\\data\\M31.xisf'), 'C:/data/M31.xisf');
+});
+
+test('crop_image with all margins 0 runs no process and keeps the image as it is', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['100x80'] });
+  const out = await byName.crop_image.handler(apiFrom(ctx), { view_id: 'RGB' });
+  assert.equal(emitted.length, 1);
+  assert.doesNotMatch(emitted[0], /new Crop/);
+  assert.match(out.text, /no process ran/);
+  assert.match(out.text, /100x80/);
+});
+
+test('crop_image runs Crop with noGUIMessages and reports a removed astrometric solution', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: [JSON.stringify({ size: '90x80', hadSol: true, hasSol: false })] });
+  const out = await byName.crop_image.handler(apiFrom(ctx), { view_id: 'RGB', left: 10 });
+  assert.match(emitted[0], /if \(P\.noGUIMessages !== undefined\) P\.noGUIMessages = true;/);
+  assert.ok(emitted[0].indexOf('noGUIMessages') < emitted[0].indexOf('__run(P, __w'), 'set before the process runs');
+  assert.match(emitted[0], /hadSol = __w\.hasAstrometricSolution/);
+  assert.match(out.text, /New size: 90x80/);
+  assert.match(out.text, /removed the astrometric solution/);
+});
+
+test('crop_image says nothing about a solution the image never had', async () => {
+  const { ctx } = createFakeBridge({ replies: [JSON.stringify({ size: '90x80', hadSol: false, hasSol: false })] });
+  const out = await byName.crop_image.handler(apiFrom(ctx), { view_id: 'RGB', left: 10 });
+  assert.doesNotMatch(out.text, /astrometric/);
+});
+
+test('export_image fails naming the path when saveAs returns false', async (t) => {
+  const ws = tempWorkspace(t);
+  const { ctx, emitted } = createFakeBridge({ replies: [{ status: 'error', error: { message: 'PixInsight did not write /x/a.png (saveAs returned false)' } }] });
+  await assert.rejects(
+    () => byName.export_image.handler(apiFrom(ctx, { workspace: ws.workspace }), { view_id: 'RGB', file_path: 'a.png' }),
+    /did not write .*saveAs returned false/
+  );
+  assert.match(emitted[0], /if \(!c\.saveAs\(/);
+});
+
+test('ensure_dir creates a folder under <workspace>/output, and reports an existing one', async (t) => {
+  const ws = tempWorkspace(t);
+  const { ctx, emitted } = createFakeBridge();
+  const api = apiFrom(ctx, { workspace: ws.workspace });
+  const out = await byName.ensure_dir.handler(api, { path: path.join('straylight', 'maps') });
+  const dir = path.join(ws.outputDir, 'straylight', 'maps');
+  assert.equal(out.isError, undefined, out.text);
+  assert.ok(existsSync(dir));
+  assert.match(out.text, /^Created: /);
+  assert.ok(out.text.includes(dir));
+  const again = await byName.ensure_dir.handler(api, { path: dir });
+  assert.match(again.text, /^Folder exists: /);
+  const inState = path.join(ws.stateDir, 'work', 'spikes');
+  assert.equal((await byName.ensure_dir.handler(api, { path: inState })).isError, undefined);
+  assert.ok(existsSync(inState));
+  assert.equal(emitted.length, 0, 'nothing reaches PixInsight');
+});
+
+test('ensure_dir refuses a folder outside the output and state folders', async (t) => {
+  const ws = tempWorkspace(t);
+  const { ctx } = createFakeBridge();
+  for (const p of [path.join(ws.dir, 'elsewhere'), path.join('..', 'x'), path.resolve(tmpdir(), 'pixinsight-connector-nope')]) {
+    const out = await byName.ensure_dir.handler(apiFrom(ctx, { workspace: ws.workspace }), { path: p });
+    assert.equal(out.isError, true, p);
+    assert.match(out.text, /^path must be inside /);
+  }
+  assert.ok(!existsSync(path.join(ws.dir, 'elsewhere')));
+});
+
+test('ensure_dir refuses a path that is an existing file', async (t) => {
+  const ws = tempWorkspace(t);
+  mkdirSync(ws.outputDir, { recursive: true });
+  writeFileSync(path.join(ws.outputDir, 'f.txt'), '');
+  const { ctx } = createFakeBridge();
+  const out = await byName.ensure_dir.handler(apiFrom(ctx, { workspace: ws.workspace }), { path: 'f.txt' });
+  assert.equal(out.isError, true);
+  assert.match(out.text, /not a folder/);
 });
