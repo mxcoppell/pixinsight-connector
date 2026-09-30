@@ -519,7 +519,9 @@ const runSpfc = {
 
 const runSpcc = {
   name: 'run_spcc',
-  description: 'Run SpectrophotometricColorCalibration (SPCC). Requires the image to have an astrometric solution (run_plate_solve adds one) and to be linear (not stretched).',
+  description: 'Run SpectrophotometricColorCalibration (SPCC). Requires the image to have an astrometric solution (run_plate_solve adds one) and to be linear (not stretched). ' +
+    'Narrowband mode (narrowband_mode true) calibrates each channel as a narrow band: give the real filter centre and width per channel (red_/green_/blue_wavelength_nm and _bandwidth_nm; PixInsight\'s defaults are 656.3 / 500.7 / 500.7 nm and 3 nm for every band, wrong for a 5 nm H-alpha filter). ' +
+    'The white reference matters for star colour: use a solar-type reference such as "G2V Star"; the default "Average Spiral Galaxy" makes a galaxy neutral and tints stars.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -531,6 +533,12 @@ const runSpcc = {
       green_filter_name: { type: 'string', description: 'Measured G filter curve name, as listed by find_filters' },
       blue_filter_name: { type: 'string', description: 'Measured B filter curve name, as listed by find_filters' },
       qe_name: { type: 'string', description: 'Camera QE curve name (find_filters channel Q)' },
+      red_wavelength_nm: { type: 'number', description: 'Narrowband mode: centre wavelength of the red channel\'s filter in nm (default 656.3)' },
+      red_bandwidth_nm: { type: 'number', description: 'Narrowband mode: bandwidth of the red channel\'s filter in nm (PixInsight default 3)' },
+      green_wavelength_nm: { type: 'number', description: 'Narrowband mode: centre wavelength of the green channel\'s filter in nm (default 500.7)' },
+      green_bandwidth_nm: { type: 'number', description: 'Narrowband mode: bandwidth of the green channel\'s filter in nm (PixInsight default 3)' },
+      blue_wavelength_nm: { type: 'number', description: 'Narrowband mode: centre wavelength of the blue channel\'s filter in nm (default 500.7)' },
+      blue_bandwidth_nm: { type: 'number', description: 'Narrowband mode: bandwidth of the blue channel\'s filter in nm (PixInsight default 3)' },
     },
     required: ['view_id'],
   },
@@ -538,7 +546,19 @@ const runSpcc = {
     const PROC = 'SpectrophotometricColorCalibration';
     const narrowband = input.narrowband_mode ? 'true' : 'false';
     let curves = '';
+    let bandwidthGiven = false;
     try {
+      for (const ch of ['red', 'green', 'blue']) {
+        for (const [key, prop] of [['wavelength_nm', 'Wavelength'], ['bandwidth_nm', 'Bandwidth']]) {
+          const given = input[`${ch}_${key}`];
+          if (given === undefined) continue;
+          if (!input.narrowband_mode) throw new Error(`${ch}_${key} applies only with narrowband_mode true`);
+          const n = num(given, undefined, `${ch}_${key}`);
+          if (!(n > 0)) throw new Error(`${ch}_${key}: expected a number above 0, got ${n}`);
+          if (key === 'bandwidth_nm') bandwidthGiven = true;
+          curves += `P.${ch}Filter${prop} = ${n};`;
+        }
+      }
       const set = (prop, nameProp, c) => `P.${prop} = ${q(c.data)}; P.${nameProp} = ${q(c.name)};`;
       if (input.red_filter_name) curves += set('redFilterTrCurve', 'redFilterName', findCurve(api, input.red_filter_name));
       if (input.green_filter_name) curves += set('greenFilterTrCurve', 'greenFilterName', findCurve(api, input.green_filter_name));
@@ -573,7 +593,10 @@ const runSpcc = {
       return { isError: true, text: `SPCC failed: ${r.outputs?.consoleOutput || r.error?.message}.` };
     }
     const stats = await statsOrEmpty(api, input.view_id);
-    return { text: `SPCC complete. R=${stats.perChannel?.R?.median?.toFixed?.(6)}, G=${stats.perChannel?.G?.median?.toFixed?.(6)}, B=${stats.perChannel?.B?.median?.toFixed?.(6)}` };
+    const note = input.narrowband_mode && !bandwidthGiven
+      ? ' Note: the narrowband bandwidths stayed at PixInsight\'s default of 3 nm per channel; pass red_bandwidth_nm, green_bandwidth_nm and blue_bandwidth_nm with the real filter widths, the calibration depends on them.'
+      : '';
+    return { text: `SPCC complete. R=${stats.perChannel?.R?.median?.toFixed?.(6)}, G=${stats.perChannel?.G?.median?.toFixed?.(6)}, B=${stats.perChannel?.B?.median?.toFixed?.(6)}${note}` };
   },
 };
 
