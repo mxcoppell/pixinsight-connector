@@ -2,6 +2,11 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.4.0
+
+- New `reproject_to_reference`: resamples a plate-solved image onto the pixel grid of another plate-solved image through the two astrometric solutions (PixInsight's astrometric reprojection, called directly, so no script library is needed). One interpolation, default Lanczos3 with clamp 0.3. The result is a new 32-bit float view with the reference's size and solution; the source is untouched, and an empty result (no overlap) is reported. In one live check with masters from two telescopes on a 9549x6361 grid it took 3 s and left a star-centroid residual of 0.39 px, where StarAlignment had left 0.92 px on the same pair.
+- `run_sxt`: the default `overlap` is now 0.5 (it was 0.10). The old default left a faint rectangular tile grid, cells of about 470 px, in linear starless images. Pass `overlap` to override.
+
 ## 2.3.0
 
 **No more hidden dialogs or silent damage.**
