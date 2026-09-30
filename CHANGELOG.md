@@ -2,6 +2,10 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.4.1
+
+- `run_spcc`: narrowband mode takes the real filter centre and width per channel (`red_`, `green_`, `blue_` `wavelength_nm` and `bandwidth_nm`). Until now the bands stayed at PixInsight's defaults (656.3, 500.7 and 500.7 nm, 3 nm each), which is wrong for a 5 nm H-alpha filter: on one H-alpha 5 nm + [O III] 3 nm dataset the H-alpha/[O III] scale read 1.003 with the default widths and 0.966 with the real ones. Narrowband mode without bandwidths now says so in its result, and the parameters are refused outside narrowband mode. The description also says to use a solar-type white reference ("G2V Star") for star colour: the default "Average Spiral Galaxy" made the scale 0.741.
+
 ## 2.4.0
 
 - New `reproject_to_reference`: resamples a plate-solved image onto the pixel grid of another plate-solved image through the two astrometric solutions (PixInsight's astrometric reprojection, called directly, so no script library is needed). One interpolation, default Lanczos3 with clamp 0.3. The result is a new 32-bit float view with the reference's size and solution; the source is untouched, and an empty result (no overlap) is reported. In one live check with masters from two telescopes on a 9549x6361 grid it took 3 s and left a star-centroid residual of 0.39 px, where StarAlignment had left 0.92 px on the same pair.

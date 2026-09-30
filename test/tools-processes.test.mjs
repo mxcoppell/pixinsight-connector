@@ -306,3 +306,36 @@ test('run_sxt defaults to tile overlap 0.5 and passes an explicit overlap throug
   await byName.run_sxt.handler(apiFrom(ctx), { view_id: 'RGB', is_linear: true, overlap: 0.3 });
   assert.match(emitted[1], /P\.overlap = 0\.3;/);
 });
+
+test('run_spcc narrowband mode sets the given per-channel wavelengths and bandwidths', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['SPCC_result=true'] });
+  const out = await byName.run_spcc.handler(apiFrom(ctx), {
+    view_id: 'RGB', narrowband_mode: true, red_wavelength_nm: 656.3, red_bandwidth_nm: 5, green_bandwidth_nm: 3, blue_bandwidth_nm: 3,
+  });
+  assert.match(emitted[0], /P\.narrowbandMode = true/);
+  assert.match(emitted[0], /P\.redFilterWavelength = 656\.3;/);
+  assert.match(emitted[0], /P\.redFilterBandwidth = 5;/);
+  assert.match(emitted[0], /P\.greenFilterBandwidth = 3;/);
+  assert.match(emitted[0], /P\.blueFilterBandwidth = 3;/);
+  assert.doesNotMatch(emitted[0], /greenFilterWavelength|blueFilterWavelength/);
+  assert.doesNotMatch(out.text, /stayed at PixInsight/);
+});
+
+test('run_spcc narrowband mode without bandwidths says they stayed at the 3 nm default', async () => {
+  const { ctx } = createFakeBridge({ replies: ['SPCC_result=true'] });
+  const out = await byName.run_spcc.handler(apiFrom(ctx), { view_id: 'RGB', narrowband_mode: true });
+  assert.match(out.text, /SPCC complete/);
+  assert.match(out.text, /stayed at PixInsight's default of 3 nm/);
+  const broadband = await byName.run_spcc.handler(apiFrom(createFakeBridge({ replies: ['SPCC_result=true'] }).ctx), { view_id: 'RGB' });
+  assert.doesNotMatch(broadband.text, /stayed at PixInsight/);
+});
+
+test('run_spcc refuses narrowband parameters outside narrowband mode, and non-positive values, before any PJSR', async () => {
+  const { ctx, emitted } = createFakeBridge();
+  const outside = await byName.run_spcc.handler(apiFrom(ctx), { view_id: 'RGB', red_bandwidth_nm: 5 });
+  assert.equal(outside.isError, true);
+  assert.match(outside.text, /SPCC not run: red_bandwidth_nm applies only with narrowband_mode true/);
+  const bad = await byName.run_spcc.handler(apiFrom(ctx), { view_id: 'RGB', narrowband_mode: true, green_bandwidth_nm: 0 });
+  assert.match(bad.text, /green_bandwidth_nm: expected a number above 0/);
+  assert.equal(emitted.length, 0);
+});
