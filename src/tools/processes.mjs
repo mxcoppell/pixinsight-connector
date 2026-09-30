@@ -180,7 +180,7 @@ const runSxt = {
     properties: {
       view_id: { type: 'string', description: 'View ID to extract stars from (modified in place to become starless)' },
       is_linear: { type: 'boolean', description: 'Whether the image is linear (pre-stretch)' },
-      overlap: { type: 'number', description: 'Star overlap parameter (default 0.10)' },
+      overlap: { type: 'number', description: 'Tile overlap (default 0.5). The former default 0.10 left a faint rectangular tile grid (cells of about 470 px) in linear starless images; 0.5 did not.' },
     },
     required: ['view_id', 'is_linear'],
   },
@@ -196,7 +196,7 @@ const runSxt = {
       var P = new ${PROC};
       P.stars = true;
       P.unscreen = ${unscreen};
-      P.overlap = ${num(input.overlap, 0.10)};
+      P.overlap = ${num(input.overlap, 0.5)};
       if (!P.executeOn(__w.mainView)) throw new Error('the process did not run (see console message)');
     } catch (e) { throw new Error(e && e.message ? e.message : String(e)); } })()`);
     if (r.status === 'error') return { isError: true, text: `SXT failed: ${r.error?.message}` };

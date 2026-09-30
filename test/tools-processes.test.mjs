@@ -298,3 +298,11 @@ test('run_mgc runs a mono image with filter, and a colour image without one', as
   const outC = await byName.run_mgc.handler(apiC, { view_id: 'RGB', mars_files: ['/tmp/fake.xmars'] });
   assert.match(outC.text, /MGC done/);
 });
+
+test('run_sxt defaults to tile overlap 0.5 and passes an explicit overlap through', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['ok', 'ok'] });
+  await byName.run_sxt.handler(apiFrom(ctx), { view_id: 'RGB', is_linear: true });
+  assert.match(emitted[0], /P\.overlap = 0\.5;/);
+  await byName.run_sxt.handler(apiFrom(ctx), { view_id: 'RGB', is_linear: true, overlap: 0.3 });
+  assert.match(emitted[1], /P\.overlap = 0\.3;/);
+});

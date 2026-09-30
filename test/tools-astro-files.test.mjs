@@ -13,6 +13,7 @@ import { createFakeBridge, apiFrom } from './fake-bridge.mjs';
 import { tools as compareTools, compareImagesPjsr, clampFractionsPjsr } from '../src/tools/compare.mjs';
 import { tools as imageTools } from '../src/tools/images.mjs';
 import { tools as resampleTools, resamplePjsr } from '../src/tools/resample.mjs';
+import { tools as reprojectTools, reprojectPjsr } from '../src/tools/reproject.mjs';
 import { tools as astrometryTools } from '../src/tools/astrometry.mjs';
 import { tools as catalogTools, catalogStarsPjsr } from '../src/tools/catalog.mjs';
 import { tools as alignTools, alignBatchPjsr } from '../src/tools/align.mjs';
@@ -481,4 +482,91 @@ test('activeWbppRun: the run without an exit record whose pid is alive; null whe
   assert.deepEqual(activeWbppRun({ scratchDir: '/s', fs, isPidAlive: (pid) => pid === 3 }), { runId: 'c', pid: 3 });
   assert.equal(activeWbppRun({ scratchDir: '/s', fs, isPidAlive: () => false }), null);
   assert.equal(activeWbppRun({ scratchDir: '/none', fs, isPidAlive: () => true }), null);
+});
+
+// --- reproject_to_reference -------------------------------------------------
+
+function reprojectSandbox(log, { srcSolved = true, refSolved = true, failAt = null } = {}) {
+  const windows = {};
+  function fakeWin(id, w, h, solved) {
+    const win = { isNull: false, hasAstrometricSolution: solved, keywords: ['K1', 'K2'] };
+    win.mainView = {
+      id,
+      image: { width: w, height: h, numberOfChannels: 1, isColor: false, maximum: () => 1 },
+      beginProcess: () => log.push('begin'),
+      endProcess: () => log.push('end'),
+    };
+    win.copyAstrometricSolution = (r) => { log.push(`copy:${r.mainView.id}`); win.hasAstrometricSolution = true; };
+    win.regenerateAstrometricSolution = () => log.push('regen');
+    win.astrometricReprojection = (s) => { if (failAt === 'reproject') throw new Error('reprojection failed'); log.push(`reproject:${s.mainView.id}`); };
+    win.forceClose = () => log.push('close');
+    win.show = () => log.push('show');
+    return win;
+  }
+  windows.SRC = fakeWin('SRC', 100, 80, srcSolved);
+  windows.REF = fakeWin('REF', 200, 160, refSolved);
+  function ImageWindow(w, h, ch, bits, isReal, isColor, id) {
+    log.push(`new:${w}x${h}x${ch}:${bits}:${isReal}:${id}`);
+    windows[id] = fakeWin(id, w, h, false);
+    return windows[id];
+  }
+  ImageWindow.windowById = (id) => windows[id] ?? { isNull: true };
+  const InterpolationAlgorithm = { Auto: 0, Lanczos3: 4 };
+  return { ImageWindow, InterpolationAlgorithm, UndoFlag: { NoSwapFile: 1 }, JSON, Date, windows };
+}
+
+const REPROJECT_OPTS = { viewId: 'SRC', referenceId: 'REF', outputId: 'OUT', interpolation: 'Lanczos3', clamp: 0.3 };
+
+test('reproject_to_reference: a reference-sized 32-bit float window takes the reference solution, then the source is reprojected once', () => {
+  const log = [];
+  const sb = reprojectSandbox(log);
+  const out = JSON.parse(vm.runInNewContext(reprojectPjsr(REPROJECT_OPTS), sb));
+  assert.deepEqual(log, ['new:200x160x1:32:true:OUT', 'begin', 'copy:REF', 'regen', 'reproject:SRC', 'end', 'show']);
+  assert.equal(sb.windows.SRC.mainView.image.interpolation, 4, 'Lanczos3');
+  assert.equal(sb.windows.SRC.mainView.image.interpolationClamping, 0.3);
+  assert.equal(sb.windows.OUT.mainView.image.interpolationQuality, 1);
+  assert.deepEqual(sb.windows.OUT.keywords, ['K1', 'K2']);
+  assert.equal(out.view, 'OUT');
+  assert.equal(out.width, 200);
+  assert.equal(out.solution, true);
+  assert.equal(out.empty, false);
+});
+
+test('reproject_to_reference refuses an unsolved image or an existing output before creating a window, and closes the window on failure', () => {
+  for (const [opts, re] of [
+    [{ srcSolved: false }, /SRC has no astrometric solution/],
+    [{ refSolved: false }, /REF has no astrometric solution/],
+  ]) {
+    const log = [];
+    assert.throws(() => vm.runInNewContext(reprojectPjsr(REPROJECT_OPTS), reprojectSandbox(log, opts)), re);
+    assert.deepEqual(log, []);
+  }
+  const taken = reprojectSandbox([]);
+  taken.windows.OUT = { isNull: false };
+  assert.throws(() => vm.runInNewContext(reprojectPjsr(REPROJECT_OPTS), taken), /already open/);
+
+  const log = [];
+  assert.throws(() => vm.runInNewContext(reprojectPjsr(REPROJECT_OPTS), reprojectSandbox(log, { failAt: 'reproject' })), /reprojection failed/);
+  assert.equal(log.at(-1), 'close');
+  assert.ok(!log.includes('show'));
+});
+
+test('reproject_to_reference: default output id, default interpolation and clamp, warning on an empty result, and bad input refused before any PJSR', async () => {
+  const { api, emitted } = compilingApi({
+    replies: ['{"view":"SRC_reprojected","width":200,"height":160,"channels":1,"interpolation":"Lanczos3","clamp":0.3,"seconds":3.2,"solution":true,"empty":true}'],
+  });
+  const t = tool(reprojectTools, 'reproject_to_reference');
+  const res = await t.handler(api, { view_id: 'SRC', reference_id: 'REF' });
+  assert.match(emitted[0], /new ImageWindow\(ri\.width, ri\.height, si\.numberOfChannels, 32, true, si\.isColor, "SRC_reprojected"\)/);
+  assert.match(emitted[0], /InterpolationAlgorithm\["Lanczos3"\]/);
+  assert.match(emitted[0], /si\.interpolationClamping = 0\.3;/);
+  assert.match(res.text, /Reprojected SRC onto REF's grid as SRC_reprojected: 200x160/);
+  assert.match(res.text, /WARNING: the result is empty/);
+
+  const before = emitted.length;
+  await assert.rejects(t.handler(api, { view_id: 'SRC', reference_id: 'REF', interpolation: 'Sinc' }), /interpolation/);
+  await assert.rejects(t.handler(api, { view_id: 'SRC', reference_id: 'REF', clamp: 2 }), /clamp/);
+  await assert.rejects(t.handler(api, { view_id: 'SRC', reference_id: 'REF', output_id: 'bad id' }), /output_id/);
+  await assert.rejects(t.handler(api, { view_id: '1x', reference_id: 'REF' }), /view_id/);
+  assert.equal(emitted.length, before);
 });
