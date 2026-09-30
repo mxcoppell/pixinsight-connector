@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defineProcessTool } from '../src/define.mjs';
+import vm from 'node:vm';
+import { defineProcessTool, PJSR_NEED_PARAMS, needParamsCall } from '../src/define.mjs';
 import { createFakeBridge, apiFrom } from './fake-bridge.mjs';
 
 const scnr = defineProcessTool({
@@ -105,4 +106,44 @@ test('defineProcessTool sets noGUIMessages where the instance has it, unless a p
   await tool.handler(apiFrom(b.ctx), { view_id: 'V', quiet: false });
   assert.match(b.emitted[0], /P\.noGUIMessages = false;/);
   assert.doesNotMatch(b.emitted[0], /P\.noGUIMessages = true/);
+});
+
+// --- Parameters the installed process does not have are refused, not ignored ---
+
+// Runs the generated check against a stand-in process instance and returns what it threw.
+function needCheck(processId, instance, names) {
+  const P = { processId: () => processId, ...instance };
+  try {
+    vm.runInNewContext(`${PJSR_NEED_PARAMS}\n${needParamsCall(names)}`, { P });
+    return null;
+  } catch (e) {
+    return e.message;
+  }
+}
+
+test('__need passes when the instance has every name, including names that were never assigned', () => {
+  assert.equal(needCheck('SCNR', { amount: 0.8, protectionMethod: 0 }, ['amount', 'protectionMethod']), null);
+  assert.equal(needCheck('SCNR', { amount: undefined }, ['amount']), null, 'a parameter whose value is undefined is still a parameter');
+});
+
+test('__need names the process and every missing parameter', () => {
+  assert.equal(
+    needCheck('BlurXTerminator', { correct_only: true }, ['correct_only', 'sharpen_stellar', 'AI']),
+    'BlurXTerminator has no parameter sharpen_stellar, AI in this PixInsight installation: assigning it would have no effect.'
+  );
+});
+
+test('the generated tool checks the parameters it is about to assign, before assigning them', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
+  await scnr.handler(apiFrom(ctx), { view_id: 'RGB', amount: 0.5, protection: 'MaximumMask' });
+  const code = emitted[0];
+  assert.match(code, /__need\(P, \["amount","protectionMethod"\]\);/);
+  assert.ok(code.indexOf('__need(P, [') < code.indexOf('P.amount = 0.5'));
+  assert.ok(code.indexOf('var P = new SCNR;') < code.indexOf('__need(P, ['));
+});
+
+test('a tool call that assigns nothing has no check to make', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
+  await scnr.handler(apiFrom(ctx), { view_id: 'RGB' });
+  assert.doesNotMatch(emitted[0], /__need\(P, \[/);
 });

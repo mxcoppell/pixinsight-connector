@@ -169,3 +169,21 @@ export function resolvePlatform({ env, platform, existsSync, homeDir }) {
     verified: layout.verified,
   };
 }
+
+/**
+ * The install root, the scripts folder and the PJSR include folder, derived from the ImageSolver path
+ * (<root>/src/scripts/ImageSolver/ImageSolver.js on every OS). Forward slashes, which PixInsight and
+ * Node both accept on every OS.
+ *
+ * @param {string} imageSolverPath
+ * @returns {{ root: string, scriptsDir: string, includeDir: string }}
+ */
+export function installDirs(imageSolverPath) {
+  const p = String(imageSolverPath ?? '').replace(/\\/g, '/');
+  const tail = '/src/scripts/ImageSolver/ImageSolver.js';
+  if (!p.endsWith(tail)) {
+    throw new PlatformError(`Cannot locate PixInsight's scripts folder from the ImageSolver path "${imageSolverPath}".`);
+  }
+  const root = p.slice(0, -tail.length);
+  return { root, scriptsDir: `${root}/src/scripts`, includeDir: `${root}/include` };
+}

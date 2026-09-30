@@ -26,6 +26,7 @@ function plateSolveScript(opts) {
     jd: pos(opts.jd),
     starsDir: opts.starsDir,
     factors: opts.scaleSearch === false ? [1] : SCALE_FACTORS,
+    recursive: typeof opts.recursiveSplines === 'boolean' ? opts.recursiveSplines : null,
   };
   return `
     var __o = ${JSON.stringify(o)};
@@ -46,6 +47,13 @@ function plateSolveScript(opts) {
       c.showDistortion = false;
       c.showSimplifiedSurfaces = false;
       c.generateErrorImg = false;
+      // ImageSolver 6.5.0 added recursiveSplines; an older one has no such key.
+      if (__o.recursive !== null) {
+        if (!('recursiveSplines' in c)) throw new Error('The installed ImageSolver has no recursive surface splines option (added in ImageSolver 6.5.0, PixInsight 1.9.5).');
+        c.recursiveSplines = __o.recursive;
+      }
+      __res.distortionCorrection = c.distortionCorrection;
+      if ('recursiveSplines' in c) __res.recursiveSplines = c.recursiveSplines;
       var m = e.metadata;
       if (__o.ra !== null) m.ra = __o.ra;
       if (__o.dec !== null) m.dec = __o.dec;
@@ -131,7 +139,7 @@ function parsePlateSolveResult(text) {
 
 const runPlateSolve = {
   name: 'run_plate_solve',
-  description: 'Plate solve an open image with ImageSolver against the local Gaia DR3/SP database (offline). Adds the astrometric solution needed by run_spfc, run_mgc and run_spcc. Needs an approximate position (ra_deg, dec_deg; within a fraction of the field is enough) and scale (pixel_scale in arcsec/px, or focal_length_mm + pixel_size_um) unless the image keywords already carry RA, DEC and FOCALLEN/XPIXSZ. If the seeded solve fails, it is retried with the scale seed multiplied by 0.5, 2, 1/3 and 3 in turn (scale_search false tries the seed only). The result gives the solved scale from the solution, the expected scale (the seed, or the one the keywords give) and their ratio, which is far from 1 for a master a stacker resampled or drizzled. Observation time is read from DATE-OBS/DATE, else today.',
+  description: 'Plate solve an open image with ImageSolver against the local Gaia DR3/SP database (offline). Adds the astrometric solution needed by run_spfc, run_mgc and run_spcc. Needs an approximate position (ra_deg, dec_deg; within a fraction of the field is enough) and scale (pixel_scale in arcsec/px, or focal_length_mm + pixel_size_um) unless the image keywords already carry RA, DEC and FOCALLEN/XPIXSZ. If the seeded solve fails, it is retried with the scale seed multiplied by 0.5, 2, 1/3 and 3 in turn (scale_search false tries the seed only). The result gives the solved scale from the solution, the expected scale (the seed, or the one the keywords give) and their ratio, which is far from 1 for a master a stacker resampled or drizzled. Observation time is read from DATE-OBS/DATE, else today. The result also states whether distortion correction and recursive surface splines were on.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -143,6 +151,7 @@ const runPlateSolve = {
       pixel_size_um: { type: 'number', description: 'Pixel size in microns' },
       observation_jd: { type: 'number', description: 'Julian date of the observation (only if no DATE-OBS/DATE keyword)' },
       scale_search: { type: 'boolean', description: 'Retry with wider scale seeds when the seeded solve fails (default true)' },
+      recursive_splines: { type: 'boolean', description: 'ImageSolver\'s "Recursive surface splines" distortion option (ImageSolver 6.5.0, PixInsight 1.9.5): models distortion with all matched stars as local surface splines over a quadtree. Omitted, the option keeps the value ImageSolver has. An older ImageSolver fails the call.' },
     },
     required: ['view_id'],
   },
@@ -153,6 +162,7 @@ const runPlateSolve = {
       pixelScale: input.pixel_scale, focalMm: input.focal_length_mm, pixelSizeUm: input.pixel_size_um,
       jd: input.observation_jd,
       scaleSearch: input.scale_search !== false && input.scale_search !== 'false',
+      recursiveSplines: input.recursive_splines === undefined ? undefined : (input.recursive_splines === true || input.recursive_splines === 'true'),
       starsDir: toPixPath(api.workspace.scratchDir) + '/tmp_platesolve',
     }));
     const out = r.status === 'error' ? { solved: false, error: r.error?.message || JSON.stringify(r.error) } : parsePlateSolveResult(r.result);
@@ -166,7 +176,11 @@ const runPlateSolve = {
         ? `, expected ${out.expectedScale.toFixed(4)}"/px, ratio ${out.scaleRatio.toFixed(3)}` : ', expected scale unknown')
         + (tried > 1 ? ` (solved at scale seed ${tried} of ${tried}: ${out.attempts[tried - 1].seedScale.toFixed(4)}"/px)` : '') + '.'
       : '';
-    return { text: `Plate solve OK in ${out.seconds}s.\n${(out.summary || []).join('\n')}${scale}` };
+    const onOff = (v) => (v ? 'on' : 'off');
+    const model = typeof out.distortionCorrection === 'boolean'
+      ? `\nDistortion correction ${onOff(out.distortionCorrection)}` + (typeof out.recursiveSplines === 'boolean' ? `, recursive surface splines ${onOff(out.recursiveSplines)}.` : '.')
+      : '';
+    return { text: `Plate solve OK in ${out.seconds}s.\n${(out.summary || []).join('\n')}${scale}${model}` };
   },
 };
 

@@ -149,3 +149,49 @@ test('run_plate_solve restores the library\'s star-list path when the solve thro
   assert.equal(ImageSolver.starsCSVFilePath, original);
   assert.match(out, /no solution/);
 });
+
+// --- recursive_splines (ImageSolver 6.5.0, PixInsight 1.9.5) ---
+
+// Runs the snippet run_plate_solve sends against a stand-in ImageSolver whose saved settings are `saved`,
+// and returns { out, seen }: the parsed result and the solver configuration at the moment of the solve.
+async function solveWith(input, saved) {
+  const sentinel = '@@SOLVE@@' + JSON.stringify({ solved: true, seconds: 1, summary: [] });
+  const { ctx, emitted } = createFakeBridge({ replies: [sentinel] });
+  await byName.run_plate_solve.handler(apiFrom(ctx), { view_id: 'L', ra_deg: 10, dec_deg: 20, pixel_scale: 1.2, ...input });
+  const seen = {};
+  function ImageSolver() { this.solverCfg = { ...saved }; this.metadata = { ResolutionFromFocal: (f) => f }; }
+  ImageSolver.starsCSVFilePath = () => '';
+  ImageSolver.prototype.initialize = function () {};
+  ImageSolver.prototype.solveImage = function () { Object.assign(seen, this.solverCfg); };
+  const w = { isNull: false, keywords: [], hasAstrometricSolution: true, astrometricSolutionSummary: () => '' };
+  const sandbox = { ImageSolver, ImageWindow: { windowById: () => w }, CatalogMode: { LocalXPSDServer: 3 }, File: { directoryExists: () => true } };
+  const raw = vm.runInNewContext(emitted[0], sandbox);
+  return { out: JSON.parse(raw.slice('@@SOLVE@@'.length)), seen };
+}
+
+test('run_plate_solve sets recursiveSplines only when recursive_splines is given', async () => {
+  const on = await solveWith({ recursive_splines: true }, { recursiveSplines: false, distortionCorrection: true });
+  assert.equal(on.seen.recursiveSplines, true);
+  const off = await solveWith({ recursive_splines: false }, { recursiveSplines: true, distortionCorrection: true });
+  assert.equal(off.seen.recursiveSplines, false);
+  const omitted = await solveWith({}, { recursiveSplines: true, distortionCorrection: true });
+  assert.equal(omitted.seen.recursiveSplines, true, 'the value ImageSolver has stands');
+});
+
+test('run_plate_solve fails clearly when recursive_splines is given and ImageSolver has no such option', async () => {
+  const { out } = await solveWith({ recursive_splines: true }, { distortionCorrection: true }).catch((e) => ({ out: { solved: false, error: e.message } }));
+  assert.equal(out.solved, false);
+  assert.match(out.error, /no recursive surface splines option \(added in ImageSolver 6\.5\.0/);
+  const omitted = await solveWith({}, { distortionCorrection: true });
+  assert.equal(omitted.out.solved, true, 'an older ImageSolver still solves when the option is not asked for');
+});
+
+test('run_plate_solve states the distortion options the solve ran with', async () => {
+  const reply = '@@SOLVE@@' + JSON.stringify({ solved: true, seconds: 3, summary: ['Control points: 710'], distortionCorrection: true, recursiveSplines: true });
+  const { ctx } = createFakeBridge({ replies: [reply] });
+  const out = await byName.run_plate_solve.handler(apiFrom(ctx), { view_id: 'L', ra_deg: 1, dec_deg: 1, pixel_scale: 1, recursive_splines: true });
+  assert.match(out.text, /Distortion correction on, recursive surface splines on\./);
+  const older = createFakeBridge({ replies: ['@@SOLVE@@' + JSON.stringify({ solved: true, seconds: 3, summary: [], distortionCorrection: false })] });
+  const out2 = await byName.run_plate_solve.handler(apiFrom(older.ctx), { view_id: 'L', ra_deg: 1, dec_deg: 1, pixel_scale: 1 });
+  assert.match(out2.text, /Distortion correction off\.$/);
+});

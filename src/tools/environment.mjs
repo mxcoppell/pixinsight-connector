@@ -10,18 +10,24 @@
 //     properties. Its console log names a missing or corrupt file, and the number of reference
 //     images it found for the probe position.
 //   - BXT, NXT and SXT print "<Name> <version>, ML version <n>" and "Using gpu|cpu" when they run.
+//   - CoreApplication.versionMajor/Minor/Release/Revision/Build/Codename give the core (1.9.5, build 1706,
+//     "Lockhart"). A process is installed when its global is a constructor that derives from ProcessInstance
+//     (the classification list_processes uses); nothing is instantiated. A script's version is its
+//     `#define VERSION` line.
 // A script captures a process's console text with console.beginLog()/endLog(). That also ends the
 // watcher's own log for this command, which is intended: the errors caught here are results, not
 // failures of the call.
 // ============================================================================
 import fs from 'node:fs';
 import os from 'node:os';
-import { toPixPath } from '../platform.mjs';
+import { toPixPath, installDirs, PlatformError } from '../platform.mjs';
 import { configuredMarsFiles } from './processes.mjs';
 
 const GAIA_RELEASES = [['DR2', 1], ['EDR3', 2], ['DR3', 3], ['DR3/SP', 4]];
 const XTERMINATORS = ['BlurXTerminator', 'NoiseXTerminator', 'StarXTerminator'];
-const SECTIONS = ['gaia', 'mars', 'xterminators', 'system'];
+const SECTIONS = ['gaia', 'mars', 'xterminators', 'processes', 'system'];
+const PROBED_PROCESSES = ['MultiscaleAdaptiveStretch', 'MultiscaleGradientCorrection', ...XTERMINATORS];
+const PROBED_SCRIPTS = ['ImageSolver', 'AstrometricSolutionVerifier', 'DistortionEvaluator', 'FFTRegistration', 'MosaicByCoordinates'];
 const q = (s) => JSON.stringify(String(s));
 
 function parseReply(r, what) {
@@ -178,6 +184,39 @@ export function xterminatorsPjsr() {
 }).call(this)`;
 }
 
+// The core version and which of `names` are installed processes. Reads only.
+export function processesPjsr(names) {
+  return `(function () {
+  var names = ${JSON.stringify(names)}, out = { core: null, processes: [] };
+  try {
+    out.core = { version: CoreApplication.versionMajor + "." + CoreApplication.versionMinor + "." + CoreApplication.versionRelease,
+      revision: CoreApplication.versionRevision, build: CoreApplication.versionBuild, codename: CoreApplication.versionCodename };
+  } catch (e) {}
+  for (var i = 0; i < names.length; i++) {
+    var C = this[names[i]];
+    out.processes.push({ name: names[i], installed: typeof C === "function" && C.prototype instanceof ProcessInstance });
+  }
+  return JSON.stringify(out);
+}).call(this)`;
+}
+
+// Installed script files under the install's scripts folder, with the version each one declares.
+export function scriptVersions(api, names = PROBED_SCRIPTS) {
+  if (api.platform.error) throw new PlatformError(api.platform.error);
+  const { scriptsDir } = installDirs(api.platform.imageSolverPath);
+  return names.map((name) => {
+    const file = `${scriptsDir}/${name}/${name}.js`;
+    if (!fs.existsSync(file)) return { name, installed: false, version: null };
+    let version = null;
+    try {
+      version = /^#define\s+VERSION\s+"([^"]+)"/m.exec(fs.readFileSync(file, 'utf8'))?.[1] ?? null;
+    } catch {
+      // Degrade, never fail: an unreadable script file leaves its version unknown.
+    }
+    return { name, installed: true, version };
+  });
+}
+
 // One MGC run's console lines -> status of that MARS file at the probe position.
 export function interpretMarsRun(run) {
   const text = (run.log || []).join('\n');
@@ -266,6 +305,10 @@ export async function inspectEnvironment(api, input = {}) {
     const x = parseReply(await api.pjsr(xterminatorsPjsr()), 'inspect_environment (xterminators)');
     out.xterminators = x.map(interpretXterminator);
   }
+  if (sections.includes('processes')) {
+    const p = parseReply(await api.pjsr(processesPjsr(PROBED_PROCESSES)), 'inspect_environment (processes)');
+    out.processes = { pixinsight: p.core, processes: p.processes, scripts: scriptVersions(api) };
+  }
   if (sections.includes('system')) out.system = systemInfo(api);
   return out;
 }
@@ -279,6 +322,7 @@ const inspectEnvironmentTool = {
     'synthetic plate-solved image; per file: readable, missing or corrupt, and how many MARS reference images cover the ' +
     'probe position. xterminators: BlurXTerminator, NoiseXTerminator and StarXTerminator run once each on a temporary ' +
     '64x64 image; reports version, ML model version and gpu/cpu from their console banner (null when not printed). ' +
+    'processes: the PixInsight core version and build, whether MultiscaleAdaptiveStretch, MultiscaleGradientCorrection, BlurXTerminator, NoiseXTerminator and StarXTerminator are installed processes, and whether ImageSolver, AstrometricSolutionVerifier, DistortionEvaluator, FFTRegistration and MosaicByCoordinates are installed scripts, with the version each script declares; nothing is run. ' +
     'system: free and total memory, free space on the workspace volume. Temporary images are closed; open images are ' +
     'not touched. Without ra_deg/dec_deg the probe position is RA 0, Dec 0 and coverage is reported as null.',
   inputSchema: {

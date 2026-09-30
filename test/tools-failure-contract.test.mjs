@@ -22,6 +22,7 @@ const EXCLUDED = new Set([
   'pixinsight_info', 'scan_workspace', // report the connector's own state; no PixInsight
   'list_open_images', // reads api.listImages, which this fake answers
   'find_filters', 'run_spfc', // read PixInsight's filter database from disk before any pjsr
+  'verify_astrometry', // reads the verifier script from the install before any pjsr (its abort mapping: test/tools-astrometry-verify.test.mjs)
   'ensure_dir', // creates a folder with Node's fs; no PixInsight
   'run_wbpp', 'wbpp_status', // start and report a separate PixInsight instance; no bridge command
 ]);

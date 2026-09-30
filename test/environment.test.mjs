@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import vm from 'node:vm';
 import { createFakeBridge, apiFrom } from './fake-bridge.mjs';
 import {
-  tools, inspectEnvironment, gaiaPjsr, marsPjsr, xterminatorsPjsr, interpretMarsRun, interpretXterminator,
+  tools, inspectEnvironment, gaiaPjsr, marsPjsr, xterminatorsPjsr, processesPjsr, scriptVersions, interpretMarsRun, interpretXterminator,
 } from '../src/tools/environment.mjs';
+import { PlatformError } from '../src/platform.mjs';
 
 // Replies captured from PixInsight 1.9.5 on 2026-09-25 (logs trimmed the way marsPjsr trims them).
 const GAIA_REPLY = {
@@ -37,12 +38,31 @@ const XT_REPLY = [
   { name: 'StarXTerminator', installed: false },
 ];
 
+// Captured from PixInsight 1.9.5 build 1706 on 2026-09-30.
+const PROCESSES_REPLY = {
+  core: { version: '1.9.5', revision: 0, build: 1706, codename: 'Lockhart' },
+  processes: [
+    { name: 'MultiscaleAdaptiveStretch', installed: true }, { name: 'MultiscaleGradientCorrection', installed: true },
+    { name: 'BlurXTerminator', installed: true }, { name: 'NoiseXTerminator', installed: true }, { name: 'StarXTerminator', installed: false },
+  ],
+};
+
+// An install folder with a few scripts in it: name -> the text of <name>/<name>.js.
+function installWith(scripts) {
+  const dir = mkdtempSync(path.join(tmpdir(), 'pxenv-install-'));
+  for (const [name, text] of Object.entries(scripts)) {
+    mkdirSync(path.join(dir, 'src', 'scripts', name), { recursive: true });
+    writeFileSync(path.join(dir, 'src', 'scripts', name, `${name}.js`), text);
+  }
+  return { dir, imageSolverPath: path.join(dir, 'src/scripts/ImageSolver/ImageSolver.js').replace(/\\/g, '/') };
+}
+
 test('environment.mjs exports inspect_environment only', () => {
   assert.deepEqual(tools.map((t) => t.name), ['inspect_environment']);
 });
 
 test('every generated PJSR snippet parses as a script', () => {
-  for (const code of [gaiaPjsr(0, 0), marsPjsr(['/a.xmars', 'C:\\b.xmars'], 83.8, -5.4), xterminatorsPjsr()]) {
+  for (const code of [gaiaPjsr(0, 0), marsPjsr(['/a.xmars', 'C:\\b.xmars'], 83.8, -5.4), xterminatorsPjsr(), processesPjsr(['SCNR'])]) {
     assert.doesNotThrow(() => new vm.Script(code));
   }
 });
@@ -107,14 +127,15 @@ function settingsWith(files) {
 
 test('inspectEnvironment: all sections, MARS files from settings including one that no longer exists', async () => {
   const { dir, p } = settingsWith(['/db/MARS-DR2-1.0.3-s08.xmars', '/tmp/nope.xmars']);
+  const install = installWith({ ImageSolver: '#define VERSION "6.5.0"\n' });
   try {
     const { ctx, emitted } = createFakeBridge({
-      replies: [JSON.stringify(GAIA_REPLY), JSON.stringify({ installed: true, runs: [MARS_RUN_OK, MARS_RUN_MISSING] }), JSON.stringify(XT_REPLY)],
+      replies: [JSON.stringify(GAIA_REPLY), JSON.stringify({ installed: true, runs: [MARS_RUN_OK, MARS_RUN_MISSING] }), JSON.stringify(XT_REPLY), JSON.stringify(PROCESSES_REPLY)],
     });
     const api = apiFrom(ctx, { workspace: { dir: tmpdir() } });
-    api.platform = { ...api.platform, settingsPath: p };
+    api.platform = { ...api.platform, settingsPath: p, imageSolverPath: install.imageSolverPath };
     const out = await inspectEnvironment(api, { ra_deg: 150.1, dec_deg: 20.2 });
-    assert.equal(emitted.length, 3);
+    assert.equal(emitted.length, 4);
     assert.match(emitted[1], /\/tmp\/nope\.xmars/, 'a configured file that does not exist is still tested');
     assert.equal(out.pixinsightVersion, '1.9.5');
     assert.equal(out.gaia.releases.find((r) => r.release === 'DR3/SP').valid, true);
@@ -122,11 +143,60 @@ test('inspectEnvironment: all sections, MARS files from settings including one t
     assert.equal(out.mars.covered, true);
     assert.equal(out.mars.source, 'settings');
     assert.equal(out.xterminators[0].mlVersion, '5');
+    assert.deepEqual(out.processes.pixinsight, { version: '1.9.5', revision: 0, build: 1706, codename: 'Lockhart' });
+    assert.equal(out.processes.processes.find((x) => x.name === 'StarXTerminator').installed, false);
+    assert.deepEqual(out.processes.scripts.find((x) => x.name === 'ImageSolver'), { name: 'ImageSolver', installed: true, version: '6.5.0' });
     assert.ok(out.system.totalMemoryBytes > 0);
     assert.equal(typeof out.system.workspaceFreeBytes, 'number');
   } finally {
     rmSync(dir, { recursive: true, force: true });
+    rmSync(install.dir, { recursive: true, force: true });
   }
+});
+
+test('inspectEnvironment: the processes section is one read-only PJSR call plus a look at the scripts folder', async () => {
+  const install = installWith({
+    ImageSolver: '// header\n#define VERSION "6.5.0"\n', FFTRegistration: '#feature-id X\n#define VERSION "2.0.0"\n', MosaicByCoordinates: 'no version here\n',
+  });
+  try {
+    const { ctx, emitted } = createFakeBridge({ replies: [JSON.stringify(PROCESSES_REPLY)] });
+    const api = apiFrom(ctx);
+    api.platform = { ...api.platform, imageSolverPath: install.imageSolverPath };
+    const out = await inspectEnvironment(api, { sections: ['processes'] });
+    assert.equal(emitted.length, 1);
+    assert.doesNotMatch(emitted[0], /executeOn|executeGlobal|new ImageWindow/, 'nothing is run or created');
+    assert.match(emitted[0], /"MultiscaleAdaptiveStretch","MultiscaleGradientCorrection","BlurXTerminator","NoiseXTerminator","StarXTerminator"/);
+    assert.ok(!('gaia' in out) && !('mars' in out));
+    assert.deepEqual(out.processes.scripts, [
+      { name: 'ImageSolver', installed: true, version: '6.5.0' },
+      { name: 'AstrometricSolutionVerifier', installed: false, version: null },
+      { name: 'DistortionEvaluator', installed: false, version: null },
+      { name: 'FFTRegistration', installed: true, version: '2.0.0' },
+      { name: 'MosaicByCoordinates', installed: true, version: null },
+    ]);
+  } finally {
+    rmSync(install.dir, { recursive: true, force: true });
+  }
+});
+
+test('the processes snippet classifies a process the way list_processes does and never instantiates one', () => {
+  const code = processesPjsr(['SCNR', 'Nope']);
+  assert.match(code, /C\.prototype instanceof ProcessInstance/);
+  assert.doesNotMatch(code, /new C\b|new this/);
+  const sandbox = {
+    CoreApplication: { versionMajor: 1, versionMinor: 9, versionRelease: 5, versionRevision: 0, versionBuild: 1706, versionCodename: 'Lockhart' },
+    ProcessInstance: class {},
+  };
+  sandbox.SCNR = class extends sandbox.ProcessInstance {};
+  sandbox.Helper = function () {};
+  const out = JSON.parse(vm.runInNewContext(code.replace('["SCNR","Nope"]', '["SCNR","Nope","Helper"]'), sandbox, {}).toString());
+  assert.deepEqual(out.core, { version: '1.9.5', revision: 0, build: 1706, codename: 'Lockhart' });
+  assert.deepEqual(out.processes, [{ name: 'SCNR', installed: true }, { name: 'Nope', installed: false }, { name: 'Helper', installed: false }]);
+});
+
+test('scriptVersions: a platform that resolved no install reports the held error', () => {
+  const api = apiFrom(createFakeBridge().ctx, { platform: { error: 'no install' } });
+  assert.throws(() => scriptVersions(api), (e) => e instanceof PlatformError && e.message === 'no install');
 });
 
 test('inspectEnvironment: without a position, coverage is null and the probe is RA 0, Dec 0', async () => {

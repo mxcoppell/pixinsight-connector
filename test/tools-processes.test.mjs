@@ -71,12 +71,33 @@ test('run_nxt and linear_fit report what they ran, not a bare "Script executed."
 
 // --- Escape-hatch descriptors ---
 
-test('run_bxt forces AI mode and only sets sharpen params outside correct_only', async () => {
+test('run_bxt sets the unified module\'s parameters: sharpen_stars, sharpen_nonstellar, adjust_star_halos', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
+  await byName.run_bxt.handler(apiFrom(ctx), { view_id: 'RGB', sharpen_stellar: 0.3, sharpen_nonstellar: 0.4, adjust_star_halos: 0.1 });
+  assert.match(emitted[0], /new BlurXTerminator/);
+  assert.match(emitted[0], /P\.correct_only = false;/);
+  assert.match(emitted[0], /P\.sharpen_stars = 0\.3;/, 'the public sharpen_stellar input is the process\'s sharpen_stars');
+  assert.match(emitted[0], /P\.sharpen_nonstellar = 0\.4;/);
+  assert.match(emitted[0], /P\.adjust_star_halos = 0\.1;/);
+});
+
+test('run_bxt no longer assigns AI, nonstellar_then_stellar, sharpen_stellar or adjust_halos, which the unified module lacks', async () => {
   const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
   await byName.run_bxt.handler(apiFrom(ctx), { view_id: 'RGB' });
-  assert.match(emitted[0], /new BlurXTerminator/);
-  assert.match(emitted[0], /P\.AI = true/);
-  assert.match(emitted[0], /P\.nonstellar_then_stellar = true/);
+  assert.doesNotMatch(emitted[0], /P\.(?:AI|nonstellar_then_stellar|sharpen_stellar|adjust_halos)\b/);
+  assert.match(emitted[0], /P\.sharpen_stars = 0\.5;/, 'omitted stellar sharpening keeps the 0.5 the tool has always sent');
+});
+
+test('run_bxt, run_nxt and run_sxt pass ml_version only when it is given', async () => {
+  for (const [tool, input] of [['run_bxt', {}], ['run_nxt', { denoise: 0.5 }], ['run_sxt', { is_linear: true }]]) {
+    const off = createFakeBridge({ replies: ['ok'] });
+    await byName[tool].handler(apiFrom(off.ctx), { view_id: 'RGB', ...input });
+    assert.doesNotMatch(off.emitted[0], /ml_version = /, `${tool} without ml_version`);
+    const on = createFakeBridge({ replies: ['ok'] });
+    await byName[tool].handler(apiFrom(on.ctx), { view_id: 'RGB', ...input, ml_version: 5 });
+    assert.match(on.emitted[0], /P\.ml_version = 5;/, `${tool} with ml_version`);
+    assert.ok(byName[tool].inputSchema.properties.ml_version, `${tool} declares ml_version`);
+  }
 });
 
 test('run_bxt correct_only mode skips the sharpen assignments', async () => {
@@ -84,6 +105,7 @@ test('run_bxt correct_only mode skips the sharpen assignments', async () => {
   await byName.run_bxt.handler(apiFrom(ctx), { view_id: 'RGB', correct_only: true });
   assert.match(emitted[0], /P\.correct_only = true/);
   assert.doesNotMatch(emitted[0], /sharpen_nonstellar/);
+  assert.doesNotMatch(emitted[0], /sharpen_stars/);
 });
 
 test('run_sxt reports the starless and stars view ids on success', async () => {
@@ -338,4 +360,38 @@ test('run_spcc refuses narrowband parameters outside narrowband mode, and non-po
   const bad = await byName.run_spcc.handler(apiFrom(ctx), { view_id: 'RGB', narrowband_mode: true, green_bandwidth_nm: 0 });
   assert.match(bad.text, /green_bandwidth_nm: expected a number above 0/);
   assert.equal(emitted.length, 0);
+});
+
+// --- Unknown parameters are refused by name, not ignored by PixInsight ---
+
+// The names a generated body passes to __need, in the order it checks them.
+const checkedNames = (js) => JSON.parse(/__need\(P, (\[[^\]]*\])\);/.exec(js)[1]);
+
+test('every hand-written process tool checks the parameters it assigns before it assigns any', async () => {
+  const cases = [
+    ['run_bxt', { view_id: 'RGB' }, ['correct_only', 'sharpen_nonstellar', 'sharpen_stars', 'adjust_star_halos']],
+    ['run_sxt', { view_id: 'RGB', is_linear: true }, ['stars', 'unscreen', 'overlap']],
+    ['run_curves', { view_id: 'RGB', channel: 'RGB', points: [[0, 0], [1, 1]] }, ['K']],
+  ];
+  for (const [name, input, names] of cases) {
+    const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
+    await byName[name].handler(apiFrom(ctx), input);
+    const code = emitted.find((c) => c.includes('__need('));
+    assert.deepEqual(checkedNames(code), names, name);
+    assert.ok(code.indexOf('__need(P,') < code.indexOf('P.' + names[0] + ' ='), `${name}: checked before the first assignment`);
+  }
+});
+
+test('the dead assignments are gone: ABE useBezierSurface/verbosity, HDRMT scalingFunctionNoiseLayers, SPCC backgroundNeutralizationEnabled', async () => {
+  const abe = createFakeBridge({ replies: ['ok'] });
+  await byName.run_abe.handler(apiFrom(abe.ctx), { view_id: 'RGB' });
+  assert.doesNotMatch(abe.emitted[0], /useBezierSurface|P\.verbosity/);
+  const hdr = createFakeBridge({ replies: ['ok'] });
+  await byName.run_hdrmt.handler(apiFrom(hdr.ctx), { view_id: 'RGB', layers: 6 });
+  assert.doesNotMatch(hdr.emitted[0], /scalingFunctionNoiseLayers/);
+  const spcc = createFakeBridge({ replies: ['SPCC_result=true'] });
+  await byName.run_spcc.handler(apiFrom(spcc.ctx), { view_id: 'RGB' });
+  assert.doesNotMatch(spcc.emitted[0], /backgroundNeutralizationEnabled/);
+  assert.match(spcc.emitted[0], /P\.neutralizeBackground = true;/);
+  assert.ok(checkedNames(spcc.emitted[0]).includes('neutralizeBackground'));
 });

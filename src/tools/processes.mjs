@@ -15,7 +15,7 @@
 // never run) is not ported — only the live :814 definition is.
 // ============================================================================
 import fs from 'node:fs';
-import { defineProcessTool } from '../define.mjs';
+import { defineProcessTool, PJSR_NEED_PARAMS, needParamsCall } from '../define.mjs';
 import { toPixPath, PlatformError } from '../platform.mjs';
 
 const q = (s) => JSON.stringify(String(s));
@@ -43,8 +43,19 @@ function need(id) {
   return `var __w = ImageWindow.windowById(${q(id)}); if (__w.isNull) throw new Error('View not found: ' + ${q(id)});`;
 }
 
+// Puts, right after the `var P = new <Process>;` line of a generated body, a check that the installed
+// process has every parameter the body assigns on P (see PJSR_NEED_PARAMS in src/define.mjs).
+function withParamCheck(body) {
+  const inst = /var P = new ([A-Za-z][A-Za-z0-9_]*);/.exec(body);
+  if (!inst) return body;
+  const names = [...new Set([...body.matchAll(/\bP\.([A-Za-z_][A-Za-z0-9_]*)\s*=(?!=)/g)].map((m) => m[1]))];
+  if (!names.length) return body;
+  const at = inst.index + inst[0].length;
+  return `${body.slice(0, at)}\n${PJSR_NEED_PARAMS}\n${needParamsCall(names)}${body.slice(at)}`;
+}
+
 async function run(api, body) {
-  const r = await api.pjsr(guard(body));
+  const r = await api.pjsr(guard(withParamCheck(body)));
   if (r.status === 'error') throw new Error(r.error?.message || JSON.stringify(r.error));
   return r.result;
 }
@@ -102,6 +113,7 @@ const runNxt = defineProcessTool({
   params: {
     denoise: { type: 'number', pjsr: 'denoise', required: true, description: 'Denoise strength, 0 to 1.' },
     detail: { type: 'number', pjsr: 'detail', default: 0.15, description: 'Detail preservation, 0 to 1.' },
+    ml_version: { type: 'number', pjsr: 'ml_version', description: 'Neural network model version (the process\'s ml_version parameter). Omitted, the process keeps its own setting.' },
   },
 });
 
@@ -144,7 +156,7 @@ const runLhe = defineProcessTool({
 
 const runBxt = {
   name: 'run_bxt',
-  description: 'Run BlurXTerminator on a view. correct_only applies PSF correction without sharpening; otherwise sharpen_nonstellar and sharpen_stellar control sharpening strength.',
+  description: 'Run BlurXTerminator on a view. correct_only applies PSF correction without sharpening; otherwise sharpen_nonstellar and sharpen_stellar (the process\'s sharpen_stars parameter) control sharpening strength. ml_version is the process\'s neural network model version; omitted, the process keeps its own setting.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -153,6 +165,7 @@ const runBxt = {
       sharpen_nonstellar: { type: 'number', description: 'Non-stellar sharpening, 0 to 1 (default 0.50)' },
       sharpen_stellar: { type: 'number', description: 'Stellar sharpening, 0 to 1 (default 0.50)' },
       adjust_star_halos: { type: 'number', description: 'Star halo adjustment, -1 to 1 (default 0.0)' },
+      ml_version: { type: 'number', description: 'Neural network model version (the process\'s ml_version parameter)' },
     },
     required: ['view_id'],
   },
@@ -160,12 +173,11 @@ const runBxt = {
     const PROC = 'BlurXTerminator';
     await run(api, `${need(input.view_id)}
       var P = new ${PROC};
-      P.AI = true;
       P.correct_only = ${input.correct_only ? 'true' : 'false'};
-      ${!input.correct_only ? `P.nonstellar_then_stellar = true;
-      P.sharpen_nonstellar = ${num(input.sharpen_nonstellar, 0.50)};
-      P.sharpen_stellar = ${num(input.sharpen_stellar, 0.50)};` : ''}
-      P.adjust_halos = ${num(input.adjust_star_halos, 0.0)};
+      ${!input.correct_only ? `P.sharpen_nonstellar = ${num(input.sharpen_nonstellar, 0.50)};
+      P.sharpen_stars = ${num(input.sharpen_stellar, 0.50)};` : ''}
+      P.adjust_star_halos = ${num(input.adjust_star_halos, 0.0)};
+      ${input.ml_version !== undefined ? `P.ml_version = ${num(input.ml_version)};` : ''}
       __run(P, __w.mainView);`);
     const stats = await statsOrEmpty(api, input.view_id);
     return { text: `BXT complete (${input.correct_only ? 'correct_only' : 'sharpen'}). median=${stats.median?.toFixed?.(6)}` };
@@ -181,6 +193,7 @@ const runSxt = {
       view_id: { type: 'string', description: 'View ID to extract stars from (modified in place to become starless)' },
       is_linear: { type: 'boolean', description: 'Whether the image is linear (pre-stretch)' },
       overlap: { type: 'number', description: 'Tile overlap (default 0.5). The former default 0.10 left a faint rectangular tile grid (cells of about 470 px) in linear starless images; 0.5 did not.' },
+      ml_version: { type: 'number', description: 'Neural network model version (the process\'s ml_version parameter). Omitted, the process keeps its own setting.' },
     },
     required: ['view_id', 'is_linear'],
   },
@@ -189,16 +202,14 @@ const runSxt = {
     const beforeIds = (await api.listImages()).map((i) => i.id);
     const unscreen = input.is_linear ? 'false' : 'true';
     // Report failure as text rather than throwing (matching the legacy tool),
-    // so this calls api.pjsr() directly instead of the run()/guard() helper.
-    const r = await api.pjsr(`(function(){ try {
-      var __w = ImageWindow.windowById(${q(input.view_id)});
-      if (__w.isNull) throw new Error('View not found: ' + ${q(input.view_id)});
+    // so this calls api.pjsr() directly instead of the run() helper.
+    const r = await api.pjsr(guard(withParamCheck(`${need(input.view_id)}
       var P = new ${PROC};
       P.stars = true;
       P.unscreen = ${unscreen};
       P.overlap = ${num(input.overlap, 0.5)};
-      if (!P.executeOn(__w.mainView)) throw new Error('the process did not run (see console message)');
-    } catch (e) { throw new Error(e && e.message ? e.message : String(e)); } })()`);
+      ${input.ml_version !== undefined ? `P.ml_version = ${num(input.ml_version)};` : ''}
+      __run(P, __w.mainView);`)));
     if (r.status === 'error') return { isError: true, text: `SXT failed: ${r.error?.message}` };
     const afterImgs = await api.listImages();
     const newImgs = afterImgs.filter((i) => !beforeIds.includes(i.id));
@@ -233,7 +244,6 @@ const runAbe = {
       P.minBoxFraction = 0.050;
       P.maxBackground = 1.0000;
       P.minBackground = 0.0000;
-      P.useBezierSurface = false;
       P.polyDegree = ${polyDegree};
       P.boxSize = 5;
       P.boxSeparation = 5;
@@ -247,7 +257,6 @@ const runAbe = {
       P.replaceTarget = true;
       P.correctedImageId = '';
       P.correctedImageSampleFormat = ${PROC}.CorrectedFormat_SameAsTarget;
-      P.verbosity = 0;
       __run(P, __w.mainView);`);
     // ABE can leave a residual model window behind; close anything new.
     const afterImgs = await api.listImages();
@@ -294,7 +303,6 @@ const runHdrmt = {
       ];
       P.scalingFunctionRowFilter = [0.0625,0.25,0.375,0.25,0.0625];
       P.scalingFunctionColFilter = [0.0625,0.25,0.375,0.25,0.0625];
-      P.scalingFunctionNoiseLayers = 1;
       P.scalingFunctionName = "B3 Spline (5)";
       P.deringing = true;
       P.smallScaleDeringing = 0.000;
@@ -569,14 +577,14 @@ const runSpcc = {
     } catch (e) {
       return { isError: true, text: `SPCC not run: ${e.message}` };
     }
-    const r = await api.pjsr(`
+    const r = await api.pjsr(withParamCheck(`
       var P = new ${PROC};
       P.applyCalibration = true;
       P.narrowbandMode = ${narrowband};
       P.generateGraphs = false;
       P.generateStarMaps = false;
       P.generateTextFiles = false;
-      P.backgroundNeutralizationEnabled = true;
+      P.neutralizeBackground = true;
       P.psfStructureLayers = 5;
       P.psfMinSNR = 10;
       P.psfAllowClusteredSources = true;
@@ -587,7 +595,7 @@ const runSpcc = {
       ${curves}
       var ok = P.executeOn(ImageWindow.windowById(${q(input.view_id)}).mainView);
       'SPCC_result=' + ok;
-    `);
+    `));
     const ok = (r.outputs?.consoleOutput || '').includes('true');
     if (!ok) {
       return { isError: true, text: `SPCC failed: ${r.outputs?.consoleOutput || r.error?.message}.` };
