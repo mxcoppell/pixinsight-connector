@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { bool } from './pjsr-args.mjs';
+import { PJSR_NEED_PARAMS, needParamsCall } from '../define.mjs';
 
 const q = (s) => JSON.stringify(String(s));
 
@@ -27,6 +28,7 @@ function validateIdentifier(value, label) {
 function guard(body) {
   return `(function(){ try {
   function __run(P, v) { if (!P.executeOn(v)) throw new Error('the process did not run (see console message)'); }
+  ${PJSR_NEED_PARAMS}
   ${body}
 } catch (e) { throw new Error(e && e.message ? e.message : String(e)); } })()`;
 }
@@ -57,14 +59,16 @@ export async function runProcess(api, name, params, viewId) {
   validateIdentifier(name, 'process name');
 
   const assignments = [];
+  const names = [];
   for (const [key, value] of Object.entries(params || {})) {
     validateIdentifier(key, `param key "${key}"`);
     assignments.push(`P.${key} = ${JSON.stringify(value)};`);
+    names.push(key);
   }
 
   const hasView = viewId !== undefined && viewId !== null;
   const nameLiteral = JSON.stringify(name);
-  const lines = [unknownProcessCheck(name), `var P = new ${name};`, ...assignments];
+  const lines = [unknownProcessCheck(name), `var P = new ${name};`, ...(names.length ? [needParamsCall(names)] : []), ...assignments];
   // noGUIMessages routes a process's confirmations and warnings to the Process Console (Crop,
   // Resample, Rotation and the other geometry processes otherwise open a modal dialog that stalls the
   // bridge). Set on every instance that has the property, unless the caller set it.
@@ -91,7 +95,7 @@ export async function runProcess(api, name, params, viewId) {
 
 const runProcessTool = {
   name: 'run_process',
-  description: 'Instantiate any PixInsight process by its PJSR constructor name, assign JSON-valued parameters onto the instance, and execute it on a view (when view_id is given) or globally (when it is omitted). Generic fallback for processes with no dedicated tool. A process that has the noGUIMessages property (Crop, DynamicCrop, Resample, IntegerResample, Rotation, FastRotation, ChannelMatch and others) runs with it set to true unless params sets it, so its confirmations and warnings go to the Process Console instead of a dialog.',
+  description: 'Instantiate any PixInsight process by its PJSR constructor name, assign JSON-valued parameters onto the instance, and execute it on a view (when view_id is given) or globally (when it is omitted). Generic fallback for processes with no dedicated tool. A params key that is not a parameter of the installed process is refused by name, since PixInsight would otherwise ignore it. A process that has the noGUIMessages property (Crop, DynamicCrop, Resample, IntegerResample, Rotation, FastRotation, ChannelMatch and others) runs with it set to true unless params sets it, so its confirmations and warnings go to the Process Console instead of a dialog.',
   inputSchema: {
     type: 'object',
     properties: {

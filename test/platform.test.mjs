@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolvePlatform, PlatformError, toPixPath } from '../src/platform.mjs';
+import { resolvePlatform, PlatformError, toPixPath, installDirs } from '../src/platform.mjs';
 
 test('macOS default layout resolves', () => {
   const p = resolvePlatform({ env: {}, platform: 'darwin', existsSync: () => true, homeDir: '/Users/u' });
@@ -227,4 +227,19 @@ test('toPixPath hands PixInsight forward slashes whatever separators a path arri
 test('toPixPath leaves a POSIX path alone: a backslash there is part of a file name, not a separator', () => {
   assert.equal(toPixPath('/t/back\\slash/agentic/bridge/rig'), '/t/back\\slash/agentic/bridge/rig');
   assert.equal(toPixPath('/Users/u/M42\\Orion.xisf'), '/Users/u/M42\\Orion.xisf');
+});
+
+test('installDirs derives the install root, scripts folder and include folder from the ImageSolver path on every OS', () => {
+  assert.deepEqual(installDirs('/Applications/PixInsight/src/scripts/ImageSolver/ImageSolver.js'), {
+    root: '/Applications/PixInsight', scriptsDir: '/Applications/PixInsight/src/scripts', includeDir: '/Applications/PixInsight/include',
+  });
+  assert.deepEqual(installDirs('C:\\Program Files\\PixInsight\\src\\scripts\\ImageSolver\\ImageSolver.js'), {
+    root: 'C:/Program Files/PixInsight', scriptsDir: 'C:/Program Files/PixInsight/src/scripts', includeDir: 'C:/Program Files/PixInsight/include',
+  });
+  assert.equal(installDirs('/opt/PixInsight/src/scripts/ImageSolver/ImageSolver.js').root, '/opt/PixInsight');
+});
+
+test('installDirs refuses a path that is not the ImageSolver script of an install', () => {
+  assert.throws(() => installDirs('/fake/ImageSolver.js'), PlatformError);
+  assert.throws(() => installDirs(undefined), /scripts folder/);
 });

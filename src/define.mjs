@@ -27,8 +27,22 @@ function validateIdentifier(value, label) {
 function guard(body) {
   return `(function(){ try {
   function __run(P, v) { if (!P.executeOn(v)) throw new Error('the process did not run (see console message)'); }
+  ${PJSR_NEED_PARAMS}
   ${body}
 } catch (e) { throw new Error(e && e.message ? e.message : String(e)); } })()`;
+}
+
+// PJSR accepts an assignment to a name the process does not have as a plain property and ignores it when
+// the process runs, so a misspelled or removed parameter changes nothing and reports nothing. __need()
+// refuses the call instead, naming the process and the parameters. Names are checked before any is assigned.
+export const PJSR_NEED_PARAMS = `function __need(P, names) {
+  var bad = [];
+  for (var i = 0; i < names.length; i++) if (!(names[i] in P)) bad.push(names[i]);
+  if (bad.length) throw new Error(P.processId() + ' has no parameter ' + bad.join(', ') + ' in this PixInsight installation: assigning it would have no effect.');
+}`;
+
+export function needParamsCall(names) {
+  return `__need(P, ${JSON.stringify(names)});`;
 }
 
 // The PJSR literal for one parameter's value. `constantsFrom` means the value is a
@@ -122,6 +136,7 @@ export function defineProcessTool(spec) {
     }
 
     const assignments = [];
+    const assignedNames = [];
     const applied = [];
     for (const [key, def] of paramEntries) {
       const value = input[key];
@@ -132,6 +147,7 @@ export function defineProcessTool(spec) {
         );
       }
       assignments.push(`P.${def.pjsr} = ${literalFor(def, key, value)};`);
+      assignedNames.push(def.pjsr);
       applied.push(`${key}=${typeof value === 'string' ? value : JSON.stringify(value)}`);
     }
 
@@ -141,6 +157,7 @@ export function defineProcessTool(spec) {
     const setsNoGui = paramEntries.some(([key, def]) => def.pjsr === 'noGUIMessages' && input[key] !== undefined);
     const lines = [
       `var P = new ${process};`,
+      ...(assignedNames.length ? [needParamsCall(assignedNames)] : []),
       ...assignments,
       ...(setsNoGui ? [] : ['if (P.noGUIMessages !== undefined) P.noGUIMessages = true;']),
       `var __w = ImageWindow.windowById(${viewIdLiteral});`,

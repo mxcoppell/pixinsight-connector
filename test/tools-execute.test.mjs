@@ -137,6 +137,17 @@ test('run_process sets noGUIMessages where the instance has it, unless params se
   assert.match(c.emitted[0], /if \(P\.noGUIMessages !== undefined\) P\.noGUIMessages = true;/);
 });
 
+test('run_process checks the params it assigns against the installed process, and refuses a name it lacks', async () => {
+  const { ctx, emitted } = createFakeBridge({ replies: ['ok'] });
+  await byName.run_process.handler(apiFrom(ctx), { name: 'BlurXTerminator', params: { AI: true, correct_only: false }, view_id: 'V' });
+  assert.match(emitted[0], /__need\(P, \["AI","correct_only"\]\);/);
+  assert.ok(emitted[0].indexOf('__need(P, [') < emitted[0].indexOf('P.AI = true;'), 'checked before assigned');
+  const none = createFakeBridge({ replies: ['ok'] });
+  await byName.run_process.handler(apiFrom(none.ctx), { name: 'ImageIntegration' });
+  assert.doesNotMatch(none.emitted[0], /__need\(P, \[/);
+  assert.match(byName.run_process.description, /refused by name/);
+});
+
 test('run_pixelmath reports the clipped fraction per channel, and says so when nothing was clipped', async () => {
   const clipped = [{ below: 0, above: 0.034, min: 0, max: 3.1 }, { below: 0.0012, above: 0, min: -0.02, max: 0.9 }, { below: 0, above: 0, min: 0, max: 0.8 }];
   const a = createFakeBridge({ replies: [JSON.stringify(clipped)] });

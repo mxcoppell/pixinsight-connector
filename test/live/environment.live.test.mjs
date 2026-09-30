@@ -34,6 +34,10 @@ test('inspect_environment reports every section from a real install and leaves n
   for (const r of out.gaia.releases) assert.equal(typeof r.valid, 'boolean');
   if (out.mars.results?.length) for (const r of out.mars.results) assert.notEqual(r.status, 'unknown', JSON.stringify(r));
   for (const x of out.xterminators) if (x.installed) assert.ok(x.version, JSON.stringify(x));
+  assert.match(out.processes.pixinsight.version, /^\d+\.\d+\.\d+$/);
+  assert.equal(typeof out.processes.pixinsight.build, 'number');
+  for (const p of out.processes.processes) assert.equal(typeof p.installed, 'boolean');
+  for (const x of out.processes.scripts) assert.equal(typeof x.installed, 'boolean');
   const after = (await api.listImages()).map((i) => i.id ?? i);
   assert.deepEqual(after, before);
   console.log(JSON.stringify(out, null, 2));
