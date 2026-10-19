@@ -2,6 +2,14 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.5.1
+
+**Security: `@modelcontextprotocol/sdk` is now `^1.31.0`** (locked at 1.32.1). `npm audit` flagged 1.12.0 through 1.30.1 as high severity (GHSA-6qxp-vccf-f47h: the SDK's OAuth client could send credentials to an authorization server chosen by the MCP server). The connector is a stdio server and uses neither the OAuth client nor an HTTP transport, which the advisory lists as not affected, so nothing was exposed; the new floor keeps `npm audit` clean for everyone who installs it.
+
+**Documentation.** This repository is the PixInsight toolbox, not a directory of other people's skills or packs, so it no longer asks for listings.
+- `COMMUNITY.md` is retitled "Companion skills and packs" and lists only the maintainer's own entries; its "Add yours" section is now "Write your own" and says to keep a skill or pack in your own repository.
+- The README, QUICKSTART and CONTRIBUTING no longer ask for a PR that adds a row to it, and the issue-template link for technique questions points at the companion skills repository.
+
 ## 2.5.0
 
 **A parameter the installed process does not have is refused, not ignored.** PJSR accepts an assignment to a name a process lacks and ignores it when the process runs, so a removed or misspelled parameter changed nothing and reported nothing. Every tool built with `defineProcessTool`, `run_process` and the hand-written tools in `processes.mjs` now check the parameters they are about to assign and fail with `<Process> has no parameter <name> in this PixInsight installation`. Checked live on PixInsight 1.9.5 build 1706: every parameter those tools set was run through the check, and the ones below were the only misses.

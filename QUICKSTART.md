@@ -106,7 +106,6 @@ The basic skill is a starting point. Your own look, order and values belong in *
 - **Private** for the technique you keep to yourself, **public** to share it. Copy the basic skill and change it,
   or write one from scratch in the [Agent Skills](https://agentskills.io) format.
 - Ask your agent to help: it can read the basic skill, your reports, and run the new skill on your data.
-- Published one? Add a row to [COMMUNITY.md](COMMUNITY.md) so others can find it.
 
 ## 9. Report what breaks
 

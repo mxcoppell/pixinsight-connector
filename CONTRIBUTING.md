@@ -3,8 +3,8 @@
 Three kinds of contribution, three places:
 
 - **A PixInsight capability the connector has no tool for** — this file.
-- **A skill or a pack** (technique) — publish it in your own repository and add a row to
-  [COMMUNITY.md](COMMUNITY.md). No connector change is needed.
+- **A skill or a pack** (technique) — publish it in your own repository. No connector change is needed, and
+  this repository does not list third-party skills or packs ([COMMUNITY.md](COMMUNITY.md)).
 - **A bug or a portability fix** — this file's development setup, then a PR. CI must be green on Linux,
   macOS and Windows.
 
