@@ -72,6 +72,9 @@ spawns (not zero reads), so extend those.
   telescope.
 - Never edit a generated block by hand (the tool list in `docs/tools.md`: run `npm run docs:tools`).
 - Never add a runtime dependency without asking first.
+- Never add other people's skills, packs or repositories to this repository's docs. `COMMUNITY.md` names only
+  the maintainer's own companion skills and packs. Decline a PR that adds a row for someone else's and say why:
+  skills and packs live in their authors' own repositories, and this repository is the toolbox, not a directory.
 
 ## Tests
 
