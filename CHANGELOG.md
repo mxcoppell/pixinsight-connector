@@ -2,6 +2,10 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.5.2
+
+**Security: `hono` is now 4.13.11** (was 4.13.8). `npm audit` flagged 4.12.4 through 4.13.10 as medium severity (GHSA-5r4p-p66f-jhc7: `serveStatic` decoded the request path a second time, so middleware mounted on a static path could be skipped). The connector is a stdio server and serves no files through `serveStatic`, so nothing was exposed; `hono` is a transitive dependency of `@modelcontextprotocol/sdk` and the lockfile now pins the patched version, keeping `npm audit` clean of this advisory for everyone who installs it.
+
 ## 2.5.1
 
 **Security: `@modelcontextprotocol/sdk` is now `^1.31.0`** (locked at 1.32.1). `npm audit` flagged 1.12.0 through 1.30.1 as high severity (GHSA-6qxp-vccf-f47h: the SDK's OAuth client could send credentials to an authorization server chosen by the MCP server). The connector is a stdio server and uses neither the OAuth client nor an HTTP transport, which the advisory lists as not affected, so nothing was exposed; the new floor keeps `npm audit` clean for everyone who installs it.
