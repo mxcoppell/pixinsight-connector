@@ -4,7 +4,7 @@ Each release's full notes are on its [GitHub release](https://github.com/mxcoppe
 
 ## 2.5.2
 
-**Security: transitive dependencies are pinned to patched versions.** `npm audit` flagged six packages from `@modelcontextprotocol/sdk`'s HTTP and server stack; the connector is a stdio server and uses none of the affected code paths, but the lockfile now carries the fixed versions so `npm audit` is clean for everyone who installs it. No direct dependency changed.
+**Security: transitive dependencies are pinned to patched versions.** `npm audit` flagged seven packages from `@modelcontextprotocol/sdk`'s HTTP and server stack; the connector is a stdio server and uses none of the affected code paths, but the lockfile now carries the fixed versions so `npm audit` is clean for everyone who installs it. No direct dependency changed.
 
 - `hono` 4.13.8 → 4.13.11 (GHSA-5r4p-p66f-jhc7, medium: `serveStatic` decoded the request path twice, so middleware mounted on a static path could be skipped).
 - `@hono/node-server` 2.1.1 → 2.1.5 (GHSA-rmxm-3fg6-px4f, medium: the same double decoding in `serveStatic`).
