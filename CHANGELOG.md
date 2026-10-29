@@ -4,7 +4,15 @@ Each release's full notes are on its [GitHub release](https://github.com/mxcoppe
 
 ## 2.5.2
 
-**Security: `hono` is now 4.13.11** (was 4.13.8). `npm audit` flagged 4.12.4 through 4.13.10 as medium severity (GHSA-5r4p-p66f-jhc7: `serveStatic` decoded the request path a second time, so middleware mounted on a static path could be skipped). The connector is a stdio server and serves no files through `serveStatic`, so nothing was exposed; `hono` is a transitive dependency of `@modelcontextprotocol/sdk` and the lockfile now pins the patched version, keeping `npm audit` clean of this advisory for everyone who installs it.
+**Security: transitive dependencies are pinned to patched versions.** `npm audit` flagged six packages from `@modelcontextprotocol/sdk`'s HTTP and server stack; the connector is a stdio server and uses none of the affected code paths, but the lockfile now carries the fixed versions so `npm audit` is clean for everyone who installs it. No direct dependency changed.
+
+- `hono` 4.13.8 → 4.13.11 (GHSA-5r4p-p66f-jhc7, medium: `serveStatic` decoded the request path twice, so middleware mounted on a static path could be skipped).
+- `@hono/node-server` 2.1.1 → 2.1.5 (GHSA-rmxm-3fg6-px4f, medium: the same double decoding in `serveStatic`).
+- `body-parser` 2.3.0 → 2.4.0 (GHSA-27r3-jxmh-p828, high: denial of service via trailing bytes after a compressed request body).
+- `qs` 6.16.0 → 6.17.1 (GHSA-6pq8-jhm2-2vcw, medium: `qs.stringify` with `arrayFormat: 'comma'` threw on an array element with a non-callable `toString`).
+- `fast-uri` 3.1.8 → 3.1.9 (GHSA-w74x-v6f9-j3xg, GHSA-xhq7-xmqj-769h, GHSA-wjr9-j795-jxcr and GHSA-333x-w4r6-6crp, low to medium: URI scheme spoofing, path-equivalence and host-confusion issues).
+- `ip-address` 10.7.2 → 10.7.5 (GHSA-rxp7-6hxx-x8q5, medium: a zone identifier in `Address6` was matched in quadratic time before its length check).
+- `zod` 4.6.5 → 4.6.7 (GHSA-mrhx-c7xc-m3w5, high: memory exhaustion while validating oversized constrained collections).
 
 ## 2.5.1
 
