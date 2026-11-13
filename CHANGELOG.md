@@ -2,6 +2,13 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.5.3
+
+**Security: transitive dependencies are pinned to patched versions.** `npm audit` flagged two packages from `@modelcontextprotocol/sdk`'s HTTP and server stack; the connector is a stdio server and uses none of the affected code paths, but the lockfile now carries the fixed versions so `npm audit` is clean for everyone who installs it. No direct dependency changed.
+
+- `@hono/node-server` 2.1.5 → 2.1.8 (GHSA-qv5m-9pm6-hqp3, medium: an unhandled `ECONNRESET` on the socket during an asynchronous WebSocket upgrade crashes the process; GHSA-jpvv-r467-5p4w, medium: a backslash in the request path was parsed as a path separator, bypassing path-based access control at a reverse proxy).
+- `hono` 4.13.11 → 4.13.18 (GHSA-4m76-xfj5-7975, GHSA-h7mg-cq63-vhpq, GHSA-3gg2-335m-rxc6, GHSA-46wx-v44x-9hh2 and GHSA-4h7h-rv7c-7m2v, low to medium: mount-prefix middleware bypass, wildcard middleware skips, `css` helper HTML injection, `csrf()` missing `text/ping` and `validator('form')` skipping multipart requests).
+
 ## 2.5.2
 
 **Security: transitive dependencies are pinned to patched versions.** `npm audit` flagged seven packages from `@modelcontextprotocol/sdk`'s HTTP and server stack; the connector is a stdio server and uses none of the affected code paths, but the lockfile now carries the fixed versions so `npm audit` is clean for everyone who installs it. No direct dependency changed.
