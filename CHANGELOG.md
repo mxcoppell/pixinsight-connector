@@ -2,6 +2,17 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.5.4
+
+**Four tools that failed, reported success while changing nothing, or left state behind are fixed.** Each ships with a unit test that fails on the old code and an opt-in live test (`PIXINSIGHT_CONNECTOR_LIVE=1`) that was run on PixInsight 1.9.5.
+
+- `multi_scale_enhance` failed on every grayscale view: its mono branch built the mask with `cloneView`, which is not a PJSR method (`w.mainView.window.cloneView is not a function`). The mask is now a one-channel copy of the view's image, built the way the other tools build a grayscale working window. The colour branch (ChannelExtraction, CIE L\*) is unchanged. (#40)
+- `run_curves` with channel `L`, `S`, `R`, `G` or `B` on a grayscale view ran, replied `Curves (L) applied.` and changed no pixel, because CurvesTransformation applies only its RGB curve to a grayscale image. It now refuses those channels on a grayscale view before any PJSR is sent, and says why. Channel `RGB` on a grayscale view and every channel on a colour view run as before, and the tool description states the rule. (#41)
+- `ha_inject_red`, `ha_inject_luminance`, `continuum_subtract_ha`, `dynamic_narrowband_blend`, `create_synthetic_luminance`, `star_protected_blend` and `restore_star_color` combine a second view with their target through PixelMath, which reads the other view at the same pixel coordinates whatever its size. Given a view a few pixels smaller than the target, each blended shifted content and reported success. Each now compares the views' widths and heights first and, when they differ, returns an error naming every view's size, with no view changed. (#42)
+- `dynamic_narrowband_blend` left its temporary `__nb_blend_mask` window open when a step failed, and a failure after the mask was attached would have left it on the target as a hidden mask for every later process. The mask's lifetime is now one `try`/`finally`, and a grayscale target is refused up front with `target must be color`. (#43)
+
+Thanks to @akshay87kumar, who found all four problems, fixed them, and tested each one against a live PixInsight.
+
 ## 2.5.3
 
 **Security: transitive dependencies are pinned to patched versions.** `npm audit` flagged two packages from `@modelcontextprotocol/sdk`'s HTTP and server stack; the connector is a stdio server and uses none of the affected code paths, but the lockfile now carries the fixed versions so `npm audit` is clean for everyone who installs it. No direct dependency changed.
