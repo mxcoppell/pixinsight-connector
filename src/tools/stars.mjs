@@ -6,6 +6,7 @@
 // star_screen_blend alias is not carried over.
 // ============================================================================
 import { q, num, vid, fixed, lit } from './pjsr-args.mjs';
+import { sizeMismatch } from './narrowband.mjs';
 
 // Three per-channel PixelMath expressions sharing `symbols` (a fixed list from this module, never
 // input), run in place on `targetId`.
@@ -77,6 +78,8 @@ const starProtectedBlend = {
     const minFrac = num(input.min_strength_fraction, undefined, 'min_strength_fraction');
     const maxValue = num(input.max_value, undefined, 'max_value');
     ordered(low, high, 'core_threshold_low', 'core_threshold_high');
+    const mismatch = await sizeMismatch(api, 'star_protected_blend', [['target_id', targetId], ['stars_id', starsId], ...(preId ? [['pre_star_id', preId]] : [])]);
+    if (mismatch) return { isError: true, text: mismatch };
 
     const preStat = await api.stats(targetId);
 
@@ -145,6 +148,8 @@ const restoreStarColor = {
     const end = num(input.restore_end, undefined, 'restore_end');
     const maxValue = num(input.max_value, undefined, 'max_value');
     ordered(start, end, 'restore_start', 'restore_end');
+    const mismatch = await sizeMismatch(api, 'restore_star_color', [['target_id', targetId], ['pre_star_id', preId]]);
+    if (mismatch) return { isError: true, text: mismatch };
     const preStat = await api.stats(targetId);
     const r = await api.pjsr(perChannelPixelMath(targetId, restoreExprs(preId, start, end, maxValue), 'Lp, Lb, restored, wr'));
     if (r.status === 'error') throw new Error(`restore_star_color failed: ${r.error?.message}`);

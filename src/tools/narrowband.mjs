@@ -22,6 +22,21 @@ const softClamp = (raw, maxOut, rolloff) => `iif(${raw} > ${maxOut}, ${maxOut} +
 
 const numbers = (s) => `median=${fixed(s.median, 6)}, max=${fixed(s.max, 4)}`;
 
+// sizeMismatch(api, tool, [[label, id], ...]) -> null, or the text of the error result when the
+// listed views are not all the same width and height. PixelMath reads another view at the same
+// pixel coordinates whatever its size, so a tool that combines views would otherwise blend shifted
+// content and report success. A view api.listImages() does not report is left out: the server has
+// already refused one that is not open. Also used by src/tools/stars.mjs.
+export async function sizeMismatch(api, tool, views) {
+  const open = await api.listImages();
+  const sized = views.map(([label, id]) => ({ label, id, img: open.find((i) => i.id === id) })).filter((v) => v.img);
+  if (sized.length < 2) return null;
+  const { width, height } = sized[0].img;
+  if (sized.every((v) => v.img.width === width && v.img.height === height)) return null;
+  return `${tool} not run: the views must have the same width and height; ` +
+    `${sized.map((v) => `${v.label} ${v.id} is ${v.img.width}x${v.img.height}`).join(', ')}. No view was changed.`;
+}
+
 // ---------------------------------------------------------------------------
 // Ha injection
 // ---------------------------------------------------------------------------
@@ -54,6 +69,8 @@ const haInjectRed = {
     const clamped = given(input.max_output);
     const maxOut = clamped ? num(input.max_output, undefined, 'max_output') : null;
     const rolloff = clamped ? num(input.rolloff, undefined, 'rolloff') : null;
+    const mismatch = await sizeMismatch(api, 'ha_inject_red', [['target_id', tgt], ['ha_id', ha]]);
+    if (mismatch) return { isError: true, text: mismatch };
     // PixelMath has no variables here, so the raw expression repeats inside the clamp.
     const rawExpr = `iif(${ha} > ${tgt}[0] * (1 + ${limit}), ${tgt}[0] + ${str} * (${ha} - ${tgt}[0]), ${tgt}[0])`;
     const expr = clamped ? softClamp(rawExpr, maxOut, rolloff) : rawExpr;
@@ -103,6 +120,8 @@ const haInjectLuminance = {
     const tgt = vid(input.target_id, 'target_id');
     const ha = vid(input.ha_id, 'ha_id');
     const str = num(input.strength, undefined, 'strength');
+    const mismatch = await sizeMismatch(api, 'ha_inject_luminance', [['target_id', tgt], ['ha_id', ha]]);
+    if (mismatch) return { isError: true, text: mismatch };
     // Y_new = Y_old + strength * max(Ha - Y_old, 0), applied as a ratio so colour is preserved.
     const Y = '(0.2126*$T[0] + 0.7152*$T[1] + 0.0722*$T[2])';
     const expr = `$T + ${str} * max(${ha} - ${Y}, 0) * $T / max(0.2126*$T[0] + 0.7152*$T[1] + 0.0722*$T[2], 0.00001)`;
@@ -191,6 +210,8 @@ const continuumSubtractHa = {
     const ha = vid(input.ha_id, 'ha_id');
     const rgb = vid(input.rgb_id, 'rgb_id');
     const factor = num(input.continuum_factor, undefined, 'continuum_factor');
+    const mismatch = await sizeMismatch(api, 'continuum_subtract_ha', [['ha_id', ha], ['rgb_id', rgb]]);
+    if (mismatch) return { isError: true, text: mismatch };
     const result = await pjsrJson(api, `
       var PM = new PixelMath;
       PM.expression = ${q(`max(0, ${ha} - ${factor} * ${rgb}[0])`)};
@@ -249,6 +270,8 @@ const dynamicNarrowbandBlend = {
     const maskClip = num(input.mask_clip, undefined, 'mask_clip');
     if (!(maskClip >= 0 && maskClip < 1)) throw new Error(`mask_clip: expected a number in [0, 1), got ${maskClip}`);
     const maskBlur = num(input.mask_blur, undefined, 'mask_blur');
+    const mismatch = await sizeMismatch(api, 'dynamic_narrowband_blend', [['target_id', tgt], ['ha_id', ha], ['oiii_id', oiii]]);
+    if (mismatch) return { isError: true, text: mismatch };
 
     // f = (OIII*Ha)^(1-OIII*Ha) = exp((1-OIII*Ha)*ln(max(OIII*Ha, 0.00001))) (PixelMath has no pow):
     // where both are bright the Ha term dominates G; where OIII alone is bright, the OIII term does.
@@ -356,6 +379,8 @@ const createSyntheticLuminance = {
     for (const [k, v] of [['ha_id', ha], ['oiii_id', oiii]]) {
       if (outputId === v) throw new Error(`output_id "${outputId}" is an input view (${k}); name a new view`);
     }
+    const mismatch = await sizeMismatch(api, 'create_synthetic_luminance', [['ha_id', ha], ['oiii_id', oiii]]);
+    if (mismatch) return { isError: true, text: mismatch };
     const sum = `${haWeight} * ${ha} + ${oiiiWeight} * ${oiii}`;
     const expr = maxValue === null ? sum : `min(${sum}, ${maxValue})`;
     const result = await pjsrJson(api, `
