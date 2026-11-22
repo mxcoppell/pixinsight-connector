@@ -93,7 +93,12 @@ async function multiScaleEnhance(api, viewId, input) {
       CE.channels = [[true, maskId], [false, ''], [false, '']];
       CE.executeOn(w.mainView);
     } else {
-      w.mainView.window.cloneView(w.mainView, maskId);
+      // Mono: the mask starts as a grayscale copy of the image itself.
+      var mw = new ImageWindow(img.width, img.height, 1, 32, true, false, maskId);
+      mw.mainView.beginProcess();
+      mw.mainView.image.assign(img);
+      mw.mainView.endProcess();
+      mw.show();
     }
     processEvents();
     maskWin = ImageWindow.windowById(maskId);
