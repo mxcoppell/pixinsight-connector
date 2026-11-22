@@ -6,6 +6,7 @@
 // caps are opt-in, the hidden NoiseXTerminator pass is gone, and results report numbers only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { tools } from '../src/tools/narrowband.mjs';
 import { compilingApi } from './helpers.mjs';
 
@@ -216,4 +217,84 @@ test('dynamic_narrowband_blend writes the mask rescale divisor at full precision
   assert.ok(emitted.length > 0);
   assert.doesNotMatch(emitted[0], /toFixed/);
   assert.match(emitted[0], /\/' \+ "0\.0000000999999999\d*" \+ '\)/);
+});
+
+// Runs an emitted dynamic_narrowband_blend snippet against a stand-in for the slice of PJSR it
+// touches: windows (with the mask a window carries, a null window when none), images whose sample()
+// refuses a channel the image does not have, as PixInsight's does, and the processes it runs.
+// `pixelMathThrows` makes the blend's PixelMath on the target throw, as a Pause/Abort does mid-process.
+function runDnb(code, { targetColor = true, pixelMathThrows = false } = {}) {
+  const open = new Map();
+  const ran = [];
+  const NULL_WINDOW = { isNull: true };
+  class Image {
+    constructor(width, height, numberOfChannels) { Object.assign(this, { width, height, numberOfChannels, isColor: numberOfChannels === 3, selectedChannel: 0 }); }
+    sample(x, y, c = 0) {
+      if (c >= this.numberOfChannels) throw new Error(`Image.sample(): Invalid channel index '${c}'; expected 0 <= c < ${this.numberOfChannels}.`);
+      return 0.25;
+    }
+    setSample() {}
+    median() { return 0.1; }
+    maximum() { return 0.9; }
+    resetChannelSelection() {}
+  }
+  class ImageWindow {
+    static windowById(id) { return open.get(id) ?? NULL_WINDOW; }
+    constructor(width, height, numberOfChannels, bitsPerSample, floatSample, color, id) {
+      this.isNull = false;
+      this.attached = null;
+      this.mainView = { id, window: this, image: new Image(width, height, numberOfChannels), beginProcess() {}, endProcess() {} };
+      open.set(id, this);
+    }
+    get mask() { return this.attached ?? NULL_WINDOW; }
+    set mask(w) { this.attached = w; }
+    show() {}
+    removeMask() { this.attached = null; }
+    forceClose() { open.delete(this.mainView.id); }
+  }
+  const proc = (name, fails = false) => class {
+    executeOn(view) {
+      ran.push({ name, view: view.id, mask: view.window.attached?.mainView.id ?? null });
+      if (fails && view.id === 'RGB') throw new Error('MCP_ABORTED: Pause/Abort was pressed');
+      return true;
+    }
+  };
+  const target = new ImageWindow(8, 6, targetColor ? 3 : 1, 32, true, targetColor, 'RGB');
+  new ImageWindow(8, 6, 1, 32, true, false, 'Ha');
+  new ImageWindow(8, 6, 1, 32, true, false, 'OIII');
+  const sandbox = { ImageWindow, Convolution: Object.assign(proc('Convolution'), { Parametric: 1 }), PixelMath: proc('PixelMath', pixelMathThrows) };
+  let out = null, error = null;
+  try { out = JSON.parse(vm.runInNewContext(code, sandbox)); } catch (e) { error = e; }
+  return { out, error, target, ran, open: [...open.keys()] };
+}
+
+async function dnbSnippet() {
+  const { api, emitted } = compilingApi({ replies: [JSON.stringify({ median: 0.1, max: 0.9, rMax: 0.9, bMax: 0.9 })] });
+  await byName.dynamic_narrowband_blend.handler(api, DNB);
+  return emitted[0];
+}
+
+test('dynamic_narrowband_blend builds its mask, blends through it, then takes it off the target and closes it', async () => {
+  const run = runDnb(await dnbSnippet());
+  assert.equal(run.error, null, run.error?.message);
+  assert.deepEqual(run.ran.filter((r) => r.view === 'RGB'), [{ name: 'PixelMath', view: 'RGB', mask: '__nb_blend_mask' }]);
+  assert.equal(run.target.attached, null, 'the mask is taken off the target');
+  assert.deepEqual(run.open, ['RGB', 'Ha', 'OIII'], 'the mask window is closed');
+});
+
+// In PixInsight 1.9.5 a grayscale target failed inside the mask loop (sample() of channel 1) and left the
+// __nb_blend_mask window open.
+test('dynamic_narrowband_blend refuses a grayscale target and leaves no mask window open', async () => {
+  const run = runDnb(await dnbSnippet(), { targetColor: false });
+  assert.match(String(run.error?.message), /dynamicNarrowbandBlend: target must be color: RGB/);
+  assert.deepEqual(run.open, ['RGB', 'Ha', 'OIII']);
+  assert.equal(run.target.attached, null);
+});
+
+test('dynamic_narrowband_blend that fails after attaching the mask still takes it off the target and closes it', async () => {
+  const run = runDnb(await dnbSnippet(), { pixelMathThrows: true });
+  assert.match(String(run.error?.message), /MCP_ABORTED/);
+  assert.deepEqual(run.ran.filter((r) => r.view === 'RGB'), [{ name: 'PixelMath', view: 'RGB', mask: '__nb_blend_mask' }], 'it failed with the mask attached');
+  assert.equal(run.target.attached, null, 'the mask is not left on the target');
+  assert.deepEqual(run.open, ['RGB', 'Ha', 'OIII'], 'the mask window is closed');
 });

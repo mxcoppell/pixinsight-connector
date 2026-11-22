@@ -286,60 +286,64 @@ const dynamicNarrowbandBlend = {
       var tgtW = ImageWindow.windowById(${q(tgt)});
       if (tgtW.isNull) throw new Error('dynamicNarrowbandBlend: target not found: ' + ${q(tgt)});
       var img = tgtW.mainView.image;
+      if (!img.isColor) throw new Error('dynamicNarrowbandBlend: target must be color: ' + ${q(tgt)});
       var w = img.width;
       var h = img.height;
 
-      // Temporary luminance mask.
+      // Temporary luminance mask. Whatever happens after it exists (a failed step, Pause/Abort), it
+      // is taken off the target and closed, so no mask window stays open or attached.
       var nbMaskId = '__nb_blend_mask';
       var oldMask = ImageWindow.windowById(nbMaskId);
       if (!oldMask.isNull) oldMask.forceClose();
 
       var maskW = new ImageWindow(w, h, 1, 32, true, false, nbMaskId);
-      var maskImg = maskW.mainView.image;
-      maskW.mainView.beginProcess();
-      for (var y = 0; y < h; y++) {
-        for (var x = 0; x < w; x++) {
-          maskImg.setSample(0.2126 * img.sample(x, y, 0) + 0.7152 * img.sample(x, y, 1) + 0.0722 * img.sample(x, y, 2), x, y);
+      try {
+        var maskImg = maskW.mainView.image;
+        maskW.mainView.beginProcess();
+        for (var y = 0; y < h; y++) {
+          for (var x = 0; x < w; x++) {
+            maskImg.setSample(0.2126 * img.sample(x, y, 0) + 0.7152 * img.sample(x, y, 1) + 0.0722 * img.sample(x, y, 2), x, y);
+          }
         }
+        maskW.mainView.endProcess();
+
+        var C = new Convolution;
+        C.mode = Convolution.Parametric;
+        C.sigma = ${maskBlur};
+        C.shape = 2;
+        C.aspectRatio = 1;
+        C.rotationAngle = 0;
+        C.executeOn(maskW.mainView);
+
+        var clipVal = ${maskClip};
+        if (clipVal > 0) {
+          var PMclip = new PixelMath;
+          PMclip.expression = 'iif($T<' + clipVal + ',0,($T-' + clipVal + ')/' + ${q(lit(1 - maskClip))} + ')';
+          PMclip.useSingleExpression = true;
+          PMclip.createNewImage = false;
+          PMclip.use64BitWorkingImage = true;
+          PMclip.truncate = true;
+          PMclip.truncateLower = 0;
+          PMclip.truncateUpper = 1;
+          PMclip.executeOn(maskW.mainView);
+        }
+
+        maskW.show();
+        tgtW.mask = maskW;
+        tgtW.maskVisible = false;
+        tgtW.maskInverted = false;
+
+        var PM = new PixelMath;
+        PM.expression = ${q(clamp(rawR))};
+        PM.expression1 = ${q(clamp(rawG))};
+        PM.expression2 = ${q(clamp(rawB))};
+        PM.useSingleExpression = false;
+        ${PM_INPLACE}
+        PM.executeOn(tgtW.mainView);
+      } finally {
+        if (!tgtW.mask.isNull && tgtW.mask.mainView.id === nbMaskId) tgtW.removeMask();
+        maskW.forceClose();
       }
-      maskW.mainView.endProcess();
-
-      var C = new Convolution;
-      C.mode = Convolution.Parametric;
-      C.sigma = ${maskBlur};
-      C.shape = 2;
-      C.aspectRatio = 1;
-      C.rotationAngle = 0;
-      C.executeOn(maskW.mainView);
-
-      var clipVal = ${maskClip};
-      if (clipVal > 0) {
-        var PMclip = new PixelMath;
-        PMclip.expression = 'iif($T<' + clipVal + ',0,($T-' + clipVal + ')/' + ${q(lit(1 - maskClip))} + ')';
-        PMclip.useSingleExpression = true;
-        PMclip.createNewImage = false;
-        PMclip.use64BitWorkingImage = true;
-        PMclip.truncate = true;
-        PMclip.truncateLower = 0;
-        PMclip.truncateUpper = 1;
-        PMclip.executeOn(maskW.mainView);
-      }
-
-      maskW.show();
-      tgtW.mask = maskW;
-      tgtW.maskVisible = false;
-      tgtW.maskInverted = false;
-
-      var PM = new PixelMath;
-      PM.expression = ${q(clamp(rawR))};
-      PM.expression1 = ${q(clamp(rawG))};
-      PM.expression2 = ${q(clamp(rawB))};
-      PM.useSingleExpression = false;
-      ${PM_INPLACE}
-      PM.executeOn(tgtW.mainView);
-
-      tgtW.removeMask();
-      maskW.forceClose();
 
       var finalImg = tgtW.mainView.image;
       finalImg.selectedChannel = 0; var rMax = finalImg.maximum();
