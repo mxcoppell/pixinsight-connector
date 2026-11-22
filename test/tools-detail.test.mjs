@@ -4,6 +4,7 @@
 // HDRMT pass and the automatic shell mask are opt-in, and results report numbers only.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import { tools } from '../src/tools/detail.mjs';
 import { compilingApi } from './helpers.mjs';
 
@@ -111,6 +112,84 @@ test('multi_scale_enhance reports the numbers and no judgement of them', async (
     assert.doesNotMatch(out.text, /WARNING|Try |check for artifacts|Strong improvement/i, out.text);
     assert.match(out.text, /HDRMT=off/);
   }
+});
+
+// Runs an emitted multi_scale_enhance snippet against a stand-in for the slice of PJSR it touches.
+// The stand-in has only members PixInsight really has (an ImageWindow has no cloneView), and it
+// records each window built, each process run (with the mask its target had then) and what is left open.
+function runMse(code, { viewId, isColor }) {
+  const open = new Map();
+  const built = new Map();
+  const created = [];
+  const ran = [];
+  class Image {
+    constructor(width, height, numberOfChannels, color) { Object.assign(this, { width, height, numberOfChannels, isColor: color, assignedFrom: null }); }
+    median() { return 0.1; }
+    MAD() { return 0.01; }
+    sample(x, y) { return ((x * 7 + y * 3) % 10) / 10; }
+    assign(src) { this.assignedFrom = src; }
+  }
+  class ImageWindow {
+    static windowById(id) { return open.get(id) ?? { isNull: true }; }
+    constructor(width, height, numberOfChannels, bitsPerSample, floatSample, color, id) {
+      this.isNull = false;
+      this.mask = null;
+      this.mainView = { id, window: this, image: new Image(width, height, numberOfChannels, color), beginProcess() {}, endProcess() {} };
+      open.set(id, this);
+      built.set(id, this);
+      created.push({ id, numberOfChannels, isColor: color });
+    }
+    show() {}
+    removeMask() { this.mask = null; }
+    forceClose() { open.delete(this.mainView.id); }
+  }
+  const proc = (name, body = () => {}) => class {
+    executeOn(view) {
+      ran.push({ name, view: view.id, mask: view.window.mask?.mainView.id ?? null });
+      body.call(this, view);
+    }
+  };
+  const source = new ImageWindow(32, 32, isColor ? 3 : 1, 32, true, isColor, viewId);
+  created.length = 0;
+  const sandbox = {
+    ImageWindow,
+    ChannelExtraction: Object.assign(proc('ChannelExtraction', function (view) {
+      new ImageWindow(view.image.width, view.image.height, 1, 32, true, false, this.channels[0][1]);
+    }), { CIELab: 1 }),
+    PixelMath: proc('PixelMath'),
+    Convolution: Object.assign(proc('Convolution'), { Parametric: 1 }),
+    LocalHistogramEqualization: proc('LocalHistogramEqualization'),
+    HDRMultiscaleTransform: proc('HDRMultiscaleTransform'),
+    processEvents() {},
+  };
+  const out = JSON.parse(vm.runInNewContext(code, sandbox));
+  return { out, source, built, created, ran, open: [...open.keys()] };
+}
+
+test('multi_scale_enhance on a mono view builds the mask as a grayscale copy, runs LHE through it and closes it', async () => {
+  const { api, emitted } = compilingApi({ replies: [mseReply()] });
+  await mse.handler(api, mseInput({ view_id: 'Ha' }));
+  const run = runMse(emitted[0], { viewId: 'Ha', isColor: false });
+  assert.doesNotMatch(emitted[0], /cloneView/, 'not a PJSR method: PixInsight failed with "cloneView is not a function"');
+  assert.deepEqual(run.created, [{ id: '__mse_mask', numberOfChannels: 1, isColor: false }]);
+  assert.equal(run.built.get('__mse_mask').mainView.image.assignedFrom, run.source.mainView.image, 'a copy of the view\'s own image');
+  assert.ok(!run.ran.some((r) => r.name === 'ChannelExtraction'));
+  assert.deepEqual(run.ran.filter((r) => r.view === '__mse_mask').map((r) => r.name), ['PixelMath', 'PixelMath', 'Convolution']);
+  assert.deepEqual(run.ran.filter((r) => r.view === 'Ha'), [1, 2, 3].map(() => ({ name: 'LocalHistogramEqualization', view: 'Ha', mask: '__mse_mask' })));
+  assert.equal(run.source.mask, null, 'the mask is removed from the view');
+  assert.deepEqual(run.open, ['Ha']);
+  assert.equal(typeof run.out.after.detailScore, 'number');
+});
+
+test('multi_scale_enhance on a colour view still builds the mask from CIE L* with ChannelExtraction and closes it', async () => {
+  const { api, emitted } = compilingApi({ replies: [mseReply()] });
+  await mse.handler(api, mseInput({ view_id: 'RGB' }));
+  const run = runMse(emitted[0], { viewId: 'RGB', isColor: true });
+  assert.deepEqual(run.ran[0], { name: 'ChannelExtraction', view: 'RGB', mask: null });
+  assert.deepEqual(run.created, [{ id: '__mse_mask', numberOfChannels: 1, isColor: false }]);
+  assert.deepEqual(run.ran.filter((r) => r.view === 'RGB' && r.name !== 'ChannelExtraction').map((r) => r.mask), ['__mse_mask', '__mse_mask', '__mse_mask']);
+  assert.equal(run.source.mask, null);
+  assert.deepEqual(run.open, ['RGB']);
 });
 
 test('multi_scale_enhance reports a failed run as an error result', async () => {

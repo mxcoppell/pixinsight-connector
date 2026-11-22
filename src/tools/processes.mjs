@@ -318,7 +318,8 @@ const runHdrmt = {
 
 const runCurves = {
   name: 'run_curves',
-  description: 'Apply a CurvesTransformation to a view. Provide control points as [[x,y], ...] for the desired channel: "RGB" (all), "L" (lightness), "S" (saturation), "R", "G", "B".',
+  description: 'Apply a CurvesTransformation to a view. Provide control points as [[x,y], ...] for the desired channel: "RGB" (all), "L" (lightness), "S" (saturation), "R", "G", "B". ' +
+    'On a grayscale view CurvesTransformation applies only the RGB curve, so any other channel is refused there.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -335,6 +336,14 @@ const runCurves = {
     const PROC = 'CurvesTransformation';
     const channelProp = { R: 'R', G: 'G', B: 'B', RGB: 'K', L: 'L', S: 'S' };
     const prop = channelProp[input.channel] || 'K';
+    // On a grayscale image CurvesTransformation applies only its K curve: an L, S, R, G or B curve
+    // leaves the pixels unchanged, so a call that would do nothing is refused instead of reported.
+    if (prop !== 'K') {
+      const img = (await api.listImages()).find((i) => i.id === input.view_id);
+      if (img && img.isColor === false) {
+        return { isError: true, text: `Curves not applied: ${input.view_id} is a grayscale image, and CurvesTransformation applies only its RGB curve to grayscale images, so a curve on channel ${input.channel} would leave it unchanged.` };
+      }
+    }
     const pts = input.points.map((p) => `[${num(p[0])},${num(p[1])}]`).join(',');
     await run(api, `${need(input.view_id)}
       var P = new ${PROC};
