@@ -174,6 +174,35 @@ test('run_curves selects the K property for channel RGB and emits the control po
   assert.match(emitted[0], /P\.K = \[\[0,0\],\[1,1\]\]/);
 });
 
+// On a grayscale image CurvesTransformation applies only its K curve; an L, S, R, G or B curve ran,
+// reported "applied" and left the pixels unchanged (seen in PixInsight 1.9.5).
+test('run_curves refuses every channel but RGB on a grayscale view, before any PJSR', async () => {
+  for (const channel of ['L', 'S', 'R', 'G', 'B']) {
+    const { ctx, emitted } = createFakeBridge();
+    ctx.listImages = async () => [{ id: 'Lum', width: 10, height: 10, isColor: false }];
+    const out = await byName.run_curves.handler(apiFrom(ctx), { view_id: 'Lum', channel, points: [[0, 0], [0.5, 0.6], [1, 1]] });
+    assert.equal(out.isError, true, channel);
+    assert.match(out.text, new RegExp(`Lum is a grayscale image.*channel ${channel} would leave it unchanged`), channel);
+    assert.equal(emitted.length, 0, `${channel}: nothing is sent to PixInsight`);
+  }
+});
+
+test('run_curves still applies channel RGB to a grayscale view and every channel to a colour view', async () => {
+  const gray = createFakeBridge({ replies: ['ok'] });
+  gray.ctx.listImages = async () => [{ id: 'Lum', width: 10, height: 10, isColor: false }];
+  const k = await byName.run_curves.handler(apiFrom(gray.ctx), { view_id: 'Lum', channel: 'RGB', points: [[0, 0], [1, 1]] });
+  assert.notEqual(k.isError, true);
+  assert.match(gray.emitted[0], /P\.K = \[\[0,0\],\[1,1\]\]/);
+
+  for (const [channel, prop] of [['L', 'L'], ['S', 'S'], ['R', 'R'], ['G', 'G'], ['B', 'B']]) {
+    const colour = createFakeBridge({ replies: ['ok'] });
+    colour.ctx.listImages = async () => [{ id: 'RGB', width: 10, height: 10, isColor: true }];
+    const out = await byName.run_curves.handler(apiFrom(colour.ctx), { view_id: 'RGB', channel, points: [[0, 0], [1, 1]] });
+    assert.notEqual(out.isError, true, channel);
+    assert.match(colour.emitted[0], new RegExp(`P\\.${prop} = \\[\\[0,0\\],\\[1,1\\]\\]`), channel);
+  }
+});
+
 test('find_filters reads api.platform.filterDbPath, not a hardcoded path', async () => {
   const { ctx } = createFakeBridge();
   const dbPath = 'test/fixtures/filters.xspd';
