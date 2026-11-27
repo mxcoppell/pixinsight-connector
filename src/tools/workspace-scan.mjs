@@ -18,9 +18,25 @@ const SKIP_DIRS = new Set(['node_modules', '.git', '.pixinsight']);
 
 // The keywords reported verbatim (quotes stripped) for every file, null when absent.
 const REPORTED_KEYWORDS = ['INSTRUME', 'TELESCOP', 'FOCALLEN', 'XPIXSZ', 'YPIXSZ', 'XBINNING'];
-// The XISF properties PixInsight (1.8.9 and later) writes for an astrometric solution; the three
-// its own WCS readers need (src/scripts/AdP/WCSmetadata.jsh) make a solution.
-const SOLUTION_PROPERTIES = ['ProjectionSystem', 'ReferenceCelestialCoordinates', 'LinearTransformationMatrix'].map((n) => `PCL:AstrometricSolution:${n}`);
+// The XISF properties that make an astrometric solution. PixInsight 1.9.5 and later writes them in the
+// standard XISF namespace, `AstrometricSolution:*`; 1.8.9-2 to 1.9.4 wrote them as `PCL:AstrometricSolution:*`.
+// Both are on disk today (a legacy file is converted when 1.9.5 saves it), and only the Generation and Grid
+// blocks keep the PCL: prefix. A solution takes everything from the same namespace.
+const STANDARD_NAMESPACE = 'AstrometricSolution:';
+const LEGACY_NAMESPACE = 'PCL:AstrometricSolution:';
+const SOLUTION_PROPERTIES = ['ProjectionSystem', 'ReferenceCelestialCoordinates', 'LinearTransformationMatrix'];
+
+// What PixInsight itself builds a solution from (AstrometricMetadata::Build, WCSKeywords): the projection, the
+// reference point and the matrix, plus the reference pixel, which is a property of the same namespace or the
+// CRPIX1 and CRPIX2 cards. A standard block whose Version major is not 1 is not interpreted at all (a missing
+// Version is accepted), and the legacy properties are then the only ones left.
+function hasSolutionProperties(properties, kw) {
+  const version = properties.get(`${STANDARD_NAMESPACE}Version`);
+  const standardSupported = version === undefined || /^\s*0*1\s*(\.|$)/.test(version);
+  const referencePixelCards = Boolean(kw('CRPIX1') && kw('CRPIX2'));
+  const complete = (ns) => [...SOLUTION_PROPERTIES, ...(referencePixelCards ? [] : ['ReferenceImageCoordinates'])].every((n) => properties.has(ns + n));
+  return (standardSupported && complete(STANDARD_NAMESPACE)) || complete(LEGACY_NAMESPACE);
+}
 const MAX_HEADER = 4 * 1024 * 1024;
 
 const decodeXml = (t) => t.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|quot|apos|amp);/gi, (m, e) => {
@@ -38,21 +54,29 @@ function unquote(v) {
   return t;
 }
 
-// The elements of an XML header, each { name, attrs }. Comments and CDATA are skipped, so text
-// that merely mentions a keyword or a property (a processing history) is never read as one.
+// The elements of an XML header, each { name, attrs, text }; text is what follows the start tag up to the
+// next tag ('' for a self-closing element). Comments and CDATA are skipped, so text that merely mentions a
+// keyword or a property (a processing history) is never read as one.
 function xmlElements(xml) {
   const clean = xml.replace(/<!--[\s\S]*?-->/g, '').replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, '');
   const out = [];
   for (const m of clean.matchAll(/<([A-Za-z_][\w:.-]*)((?:\s+[A-Za-z_][\w:.-]*\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*\/?>/g)) {
     const attrs = {};
     for (const a of m[2].matchAll(/([A-Za-z_][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g)) attrs[a[1]] = decodeXml(a[2] ?? a[3]);
-    out.push({ name: m[1], attrs });
+    let text = '';
+    if (!m[0].endsWith('/>')) {
+      const start = m.index + m[0].length;
+      const end = clean.indexOf('<', start);
+      text = decodeXml(clean.slice(start, end === -1 ? undefined : end));
+    }
+    out.push({ name: m[1], attrs, text });
   }
   return out;
 }
 
 // headerFacts({ keywords, properties, geometry, colorSpace }) -> what scan_workspace reports.
-// `keywords` maps a FITS keyword to its first value (unquoted); `properties` is the set of XISF property ids.
+// `keywords` maps a FITS keyword to its first value (unquoted); `properties` maps an XISF property id to its
+// first value (the `value` attribute, else the element text).
 function headerFacts({ keywords, properties, geometry, colorSpace }) {
   const kw = (name) => (keywords.has(name) ? keywords.get(name) : null);
   const exp = kw('EXPTIME') || kw('EXPOSURE');
@@ -64,7 +88,7 @@ function headerFacts({ keywords, properties, geometry, colorSpace }) {
     filter: kw('FILTER') || kw('FILT-1') || kw('FILTER1'),
     object: kw('OBJECT'),
     exposureS: exp ? Number(exp) : null,
-    hasWCS: wcsKeywords || SOLUTION_PROPERTIES.every((id) => properties.has(id)),
+    hasWCS: wcsKeywords || hasSolutionProperties(properties, kw),
     keywords: Object.fromEntries(REPORTED_KEYWORDS.map((k) => [k, kw(k)])),
   };
 }
@@ -86,10 +110,10 @@ export function readXisfHeader(file) {
     fs.readSync(fd, buf, 0, n, 16);
     const elements = xmlElements(buf.toString('utf8'));
     const keywords = new Map();
-    const properties = new Set();
-    for (const { name, attrs } of elements) {
+    const properties = new Map();
+    for (const { name, attrs, text } of elements) {
       if (name === 'FITSKeyword' && attrs.name && !keywords.has(attrs.name)) keywords.set(attrs.name, unquote(attrs.value ?? ''));
-      if (name === 'Property' && attrs.id) properties.add(attrs.id);
+      if (name === 'Property' && attrs.id && !properties.has(attrs.id)) properties.set(attrs.id, attrs.value ?? text);
     }
     const img = elements.find((e) => e.name === 'Image')?.attrs ?? {};
     return headerFacts({ keywords, properties, geometry: img.geometry ?? null, colorSpace: img.colorSpace ?? null });
@@ -121,7 +145,7 @@ export function readFitsHeader(file) {
         if (name === 'END') {
           const naxis = [1, 2, 3].map((k) => keywords.get(`NAXIS${k}`));
           const geometry = naxis[0] && naxis[1] ? `${naxis[0]}:${naxis[1]}:${naxis[2] || 1}` : null;
-          return headerFacts({ keywords, properties: new Set(), geometry, colorSpace: null });
+          return headerFacts({ keywords, properties: new Map(), geometry, colorSpace: null });
         }
         if (c.slice(8, 10) !== '= ' || keywords.has(name)) continue;
         const raw = c.slice(10);
@@ -171,7 +195,7 @@ function scanWorkspace(workspaceDir, skipPaths = []) {
 export const tools = [{
   name: 'scan_workspace',
   description: 'Scan the working folder (recursively, any subfolder name) for XISF/FITS files and report each one\'s FILTER header value, geometry, exposure, ' +
-    'whether it has an astrometric solution (WCS keywords CTYPE/CRVAL with a CD, CDELT or PC matrix, or PixInsight\'s PCL:AstrometricSolution properties), ' +
+    'whether it has an astrometric solution (WCS keywords CTYPE/CRVAL with a CD, CDELT or PC matrix, or PixInsight\'s AstrometricSolution properties, written as AstrometricSolution:* by PixInsight 1.9.5 and later and as PCL:AstrometricSolution:* by earlier versions), ' +
     'and its INSTRUME, TELESCOP, FOCALLEN, XPIXSZ, YPIXSZ and XBINNING keywords verbatim (null when absent). ' +
     'The connector\'s own state and output folders are not scanned. Read-only.',
   inputSchema: { type: 'object', properties: {} },
