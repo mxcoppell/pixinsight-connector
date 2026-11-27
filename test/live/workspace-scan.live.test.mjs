@@ -13,7 +13,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { buildRuntimeApi } from '../../src/server.mjs';
-import { resolvePlatform } from '../../src/platform.mjs';
+import { resolvePlatform, toPixPath } from '../../src/platform.mjs';
 import { createProcessProbe } from '../../src/process-probe.mjs';
 import { createWorkspace } from '../../src/workspace.mjs';
 import { tools } from '../../src/tools/workspace-scan.mjs';
@@ -31,8 +31,6 @@ function runtimeApi() {
     connectorVersion: version,
   }).api;
 }
-
-const toPixPath = (p) => p.replace(/\\/g, '/');
 
 test('scan_workspace reports hasWCS for a solved XISF that PixInsight saves, and false for an unsolved one', live, async (t) => {
   const api = runtimeApi();
