@@ -2,6 +2,15 @@
 
 Each release's full notes are on its [GitHub release](https://github.com/mxcoppell/pixinsight-connector/releases).
 
+## 2.5.5
+
+**`scan_workspace` now reports `hasWCS: true` for solutions saved by PixInsight 1.9.5 and later.** It required the `PCL:AstrometricSolution:*` property ids that PixInsight 1.8.9-2 to 1.9.4 wrote. 1.9.5 stores the solution in the standard XISF namespace, `AstrometricSolution:*` (only the `Generation` and `Grid` sub-blocks keep the `PCL:` prefix), so every file it saved was reported as having no solution. The fix has unit tests that fail on the old code and an opt-in live test (`PIXINSIGHT_CONNECTOR_LIVE=1`) that was run on PixInsight 1.9.5 and fails on the old scanner.
+
+- The projection system, reference celestial coordinates and linear transformation matrix are accepted from either namespace, so files from 1.8.9-2 to 1.9.4 are still reported. The tool description says which PixInsight versions write which form. (#46)
+- `hasWCS` now follows what PixInsight itself builds a solution from: the reference pixel (`ReferenceImageCoordinates`, or the `CRPIX1` and `CRPIX2` cards) is required, and a standard block whose `Version` major is not 1 does not count. Every real solved file checked, from PixInsight 1.9.3 and 1.9.5, is unaffected. (#46)
+
+Thanks to @jin-young, who reported it with the exact property ids and the fix. (#45)
+
 ## 2.5.4
 
 **Four tools that failed, reported success while changing nothing, or left state behind are fixed.** Each ships with a unit test that fails on the old code and an opt-in live test (`PIXINSIGHT_CONNECTOR_LIVE=1`) that was run on PixInsight 1.9.5.
