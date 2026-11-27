@@ -137,16 +137,50 @@ test('hasWCS: PixInsight\'s astrometric solution properties are a solution', asy
   assert.equal(f['partial.xisf'].hasWCS, false, 'a creation time alone is not a solution');
 });
 
-test('hasWCS: one or two of the three solution properties are not a solution', async (t) => {
-  const prop = (n) => `<Property id="PCL:AstrometricSolution:${n}" type="String" value="x"/>`;
+// The solution as PixInsight 1.9.5 and later saves it (a real ImageSolver 6.5.0 solution, values shortened): the
+// standard XISF namespace, no PCL: prefix, the value as element text. Only the Generation and Grid blocks keep PCL:.
+// PixInsight 1.8.9-2 to 1.9.4 wrote the three core properties as PCL:AstrometricSolution:* (the test above).
+const STANDARD_SOLUTION =
+  '<Property id="AstrometricSolution:LinearTransformationMatrix" type="F64Matrix" rows="2" columns="2" location="inline:base64">xyKxWQk0Qr9I3GkrVgkcvpGRqXn4Oie+O3nzZSo0Qr8=</Property>' +
+  '<Property id="AstrometricSolution:ProjectionSystem" type="String">Gnomonic</Property>' +
+  '<Property id="AstrometricSolution:ReferenceCelestialCoordinates" type="F64Vector" length="2" location="inline:base64">PN6lMYD0VECUX3I+GY8VwA==</Property>' +
+  '<Property id="AstrometricSolution:ReferenceImageCoordinates" type="F64Vector" length="2" location="inline:base64">0cUry5o/j0C8MsVfKOCFQA==</Property>' +
+  '<Property id="AstrometricSolution:Version" type="String">1.0</Property>';
+const GENERATION_AND_GRID =
+  '<Property id="PCL:AstrometricSolution:Generation:Engine" type="String">DDM</Property>' +
+  '<Property id="PCL:AstrometricSolution:Grid:Fingerprint" type="String">bb571434e29e40aa</Property>';
+
+test('hasWCS: the standard AstrometricSolution properties of PixInsight 1.9.5 and later are a solution', async (t) => {
   const f = await scanFiles(t, {
-    'one.xisf': xisf(image(prop('ProjectionSystem'))),
-    'two.xisf': xisf(image(prop('ProjectionSystem') + prop('ReferenceCelestialCoordinates'))),
-    'other-two.xisf': xisf(image(prop('ReferenceCelestialCoordinates') + prop('LinearTransformationMatrix'))),
-    'three.xisf': xisf(image(prop('ProjectionSystem') + prop('ReferenceCelestialCoordinates') + prop('LinearTransformationMatrix'))),
+    'standard.xisf': xisf(image(STANDARD_SOLUTION + GENERATION_AND_GRID + HISTORY)),
+    'generation-only.xisf': xisf(image(GENERATION_AND_GRID)),
   });
-  assert.deepEqual(Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.hasWCS])),
-    { 'one.xisf': false, 'two.xisf': false, 'other-two.xisf': false, 'three.xisf': true });
+  assert.equal(f['standard.xisf'].hasWCS, true, 'the PCL:-prefixed Generation and Grid blocks beside the core properties are not needed');
+  assert.equal(f['generation-only.xisf'].hasWCS, false, 'the PCL:-prefixed Generation and Grid blocks alone are not a solution');
+});
+
+test('hasWCS: one or two of the three solution properties are not a solution, in either namespace', async (t) => {
+  for (const prefix of ['PCL:AstrometricSolution:', 'AstrometricSolution:']) {
+    const prop = (n) => `<Property id="${prefix}${n}" type="String" value="x"/>`;
+    const f = await scanFiles(t, {
+      'one.xisf': xisf(image(prop('ProjectionSystem'))),
+      'two.xisf': xisf(image(prop('ProjectionSystem') + prop('ReferenceCelestialCoordinates'))),
+      'other-two.xisf': xisf(image(prop('ReferenceCelestialCoordinates') + prop('LinearTransformationMatrix'))),
+      'three.xisf': xisf(image(prop('ProjectionSystem') + prop('ReferenceCelestialCoordinates') + prop('LinearTransformationMatrix'))),
+    });
+    assert.deepEqual(Object.fromEntries(Object.entries(f).map(([k, v]) => [k, v.hasWCS])),
+      { 'one.xisf': false, 'two.xisf': false, 'other-two.xisf': false, 'three.xisf': true }, prefix);
+  }
+});
+
+test('hasWCS: the three core properties come from one namespace, never one from each', async (t) => {
+  // No PixInsight writer produces a mix: saving the standard block first deletes the legacy PCL: ids (AstrometricMetadata::Write).
+  const std = (n) => `<Property id="AstrometricSolution:${n}" type="String" value="x"/>`;
+  const old = (n) => `<Property id="PCL:AstrometricSolution:${n}" type="String" value="x"/>`;
+  const f = await scanFiles(t, {
+    'mixed.xisf': xisf(image(std('ProjectionSystem') + std('ReferenceCelestialCoordinates') + old('LinearTransformationMatrix'))),
+  });
+  assert.equal(f['mixed.xisf'].hasWCS, false);
 });
 
 test('XISF: a keyword or property inside a comment or CDATA section is not read', async (t) => {

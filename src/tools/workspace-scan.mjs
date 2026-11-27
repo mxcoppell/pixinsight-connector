@@ -18,9 +18,14 @@ const SKIP_DIRS = new Set(['node_modules', '.git', '.pixinsight']);
 
 // The keywords reported verbatim (quotes stripped) for every file, null when absent.
 const REPORTED_KEYWORDS = ['INSTRUME', 'TELESCOP', 'FOCALLEN', 'XPIXSZ', 'YPIXSZ', 'XBINNING'];
-// The XISF properties PixInsight (1.8.9 and later) writes for an astrometric solution; the three
-// its own WCS readers need (src/scripts/AdP/WCSmetadata.jsh) make a solution.
-const SOLUTION_PROPERTIES = ['ProjectionSystem', 'ReferenceCelestialCoordinates', 'LinearTransformationMatrix'].map((n) => `PCL:AstrometricSolution:${n}`);
+// The XISF properties that make an astrometric solution: the three PixInsight's own WCS readers need
+// (src/scripts/AdP/WCSmetadata.jsh). PixInsight 1.9.5 and later writes them in the standard XISF
+// namespace, `AstrometricSolution:*`; 1.8.9-2 to 1.9.4 wrote them as `PCL:AstrometricSolution:*`. Both
+// are on disk today (a legacy file is converted when 1.9.5 saves it), and only the Generation and Grid
+// blocks keep the PCL: prefix. A solution takes all three from the same namespace.
+const SOLUTION_PROPERTIES = ['ProjectionSystem', 'ReferenceCelestialCoordinates', 'LinearTransformationMatrix'];
+const SOLUTION_NAMESPACES = ['AstrometricSolution:', 'PCL:AstrometricSolution:'];
+const hasSolutionProperties = (properties) => SOLUTION_NAMESPACES.some((ns) => SOLUTION_PROPERTIES.every((n) => properties.has(ns + n)));
 const MAX_HEADER = 4 * 1024 * 1024;
 
 const decodeXml = (t) => t.replace(/&(#x[0-9a-f]+|#\d+|lt|gt|quot|apos|amp);/gi, (m, e) => {
@@ -64,7 +69,7 @@ function headerFacts({ keywords, properties, geometry, colorSpace }) {
     filter: kw('FILTER') || kw('FILT-1') || kw('FILTER1'),
     object: kw('OBJECT'),
     exposureS: exp ? Number(exp) : null,
-    hasWCS: wcsKeywords || SOLUTION_PROPERTIES.every((id) => properties.has(id)),
+    hasWCS: wcsKeywords || hasSolutionProperties(properties),
     keywords: Object.fromEntries(REPORTED_KEYWORDS.map((k) => [k, kw(k)])),
   };
 }
@@ -171,7 +176,7 @@ function scanWorkspace(workspaceDir, skipPaths = []) {
 export const tools = [{
   name: 'scan_workspace',
   description: 'Scan the working folder (recursively, any subfolder name) for XISF/FITS files and report each one\'s FILTER header value, geometry, exposure, ' +
-    'whether it has an astrometric solution (WCS keywords CTYPE/CRVAL with a CD, CDELT or PC matrix, or PixInsight\'s PCL:AstrometricSolution properties), ' +
+    'whether it has an astrometric solution (WCS keywords CTYPE/CRVAL with a CD, CDELT or PC matrix, or PixInsight\'s AstrometricSolution properties, written as AstrometricSolution:* by PixInsight 1.9.5 and later and as PCL:AstrometricSolution:* by earlier versions), ' +
     'and its INSTRUME, TELESCOP, FOCALLEN, XPIXSZ, YPIXSZ and XBINNING keywords verbatim (null when absent). ' +
     'The connector\'s own state and output folders are not scanned. Read-only.',
   inputSchema: { type: 'object', properties: {} },
